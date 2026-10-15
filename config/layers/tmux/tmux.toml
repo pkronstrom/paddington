@@ -1,0 +1,82 @@
+# tmux ruleset: iTerm showing any tmux pane. claude.toml and codex.toml extend this and replace row 4 + knobs 7–8.
+# Keys and text go to the pane that was focused when you pressed. Layout grammar: see default.toml.
+
+name    = "tmux"
+kind    = "base"
+extends = "default"
+color   = "#20c997"
+when    = { app = ["com.googlecode.iterm2"], tmux_cmd = ["*"] }
+
+# ── buttons ───────────────────────────────────────────────────
+left  = { label = "Prev window", tmux = ["previous-window", "-t", "{session}:"], color = "nav" }
+right = { label = "Next window", tmux = ["next-window", "-t", "{session}:"], color = "nav" }
+play  = { label = "Enter",       keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
+pause = { label = "Esc",         keys = "esc", color = "warn", desc = "Esc on press" }
+
+# ── rows 1–2: windows 1–8 ─────────────────────────────────────
+# Window pads whose window doesn't exist play drums. The empty = { … } bindings are a kit in priority order
+# (pad1's first): the lowest empty pad gets Kick, the next Snare, then Hat, Open hat, Clap, toms, Cowbell —
+# so even two empty pads make a beat. Sounds are set in config.toml [sounds].
+pad1 = { label = "Win 1", tmux = ["select-window", "-t", "{session}:1"], look = "agent_status", win = 1, empty = { label = "Kick", sound = "kick", color = "drum" } }
+pad2 = { label = "Win 2", tmux = ["select-window", "-t", "{session}:2"], look = "agent_status", win = 2, empty = { label = "Snare", sound = "snare", color = "drum" } }
+pad3 = { label = "Win 3", tmux = ["select-window", "-t", "{session}:3"], look = "agent_status", win = 3, empty = { label = "Hat", sound = "hat", color = "drum" } }
+pad4 = { label = "Win 4", tmux = ["select-window", "-t", "{session}:4"], look = "agent_status", win = 4, empty = { label = "Open hat", sound = "openhat", color = "drum" } }
+pad5 = { label = "Win 5", tmux = ["select-window", "-t", "{session}:5"], look = "agent_status", win = 5, empty = { label = "Clap", sound = "clap", color = "drum" } }
+pad6 = { label = "Win 6", tmux = ["select-window", "-t", "{session}:6"], look = "agent_status", win = 6, empty = { label = "Low tom", sound = "tom_low", color = "drum" } }
+pad7 = { label = "Win 7", tmux = ["select-window", "-t", "{session}:7"], look = "agent_status", win = 7, empty = { label = "High tom", sound = "tom_high", color = "drum" } }
+pad8 = { label = "Win 8", tmux = ["select-window", "-t", "{session}:8"], look = "agent_status", win = 8, empty = { label = "Cowbell", sound = "cowbell", color = "drum" } }
+
+# ── row 3: lifecycle ──────────────────────────────────────────
+# pad11 New: see the [pad11] table at the end
+pad10 = { label = "Shell here", tmux = ["new-window", "-t", "{session}:", "-c", "{pane_path}"], color = "act" }
+pad9  = { label = "Waiting {agents.waiting}", agent = "next_waiting", look = "waiting", desc = "jump to the agent that has waited longest" }
+pad12 = { label = "Close…", picker = "close", confirm = "hold", color = "danger", desc = "hold 1 s: choose — close window · workmux close · merge · remove worktree" }
+
+# ── row 4: tmux verbs (agents replace these) ──────────────────
+pad13 = { label = "Last window", tmux = ["last-window", "-t", "{session}:"], color = "nav" }
+pad14 = { label = "Zoom",        tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act" }
+pad15 = { label = "Split →",     tmux = ["split-window", "-h", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
+pad16 = { label = "Split ↓",     tmux = ["split-window", "-v", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
+
+# ── knobs ─────────────────────────────────────────────────────
+knob1 = { label = "↑ ↓",        keys = { cw = "down", ccw = "up" }, color = "nav", desc = "menus, lists, history" }
+knob2 = { label = "← →",        keys = { cw = "right", ccw = "left" }, color = "nav", desc = "cursor, sliders" }
+knob3 = { label = "Windows",    cw = { tmux = ["next-window", "-t", "{session}:"] }, ccw = { tmux = ["previous-window", "-t", "{session}:"] }, color = "nav", sound = "nav" }
+knob4 = { label = "Panes",      cw = { tmux = ["select-pane", "-t", "{session}:.+"] }, ccw = { tmux = ["select-pane", "-t", "{session}:.-"] }, color = "nav", sound = "nav" }
+knob5 = { label = "Scrollback", ccw = { seq = [ { tmux = ["copy-mode", "-e", "-t", "{pane}"] }, { tmux = ["send-keys", "-t", "{pane}", "-X", "-N", "3", "scroll-up"] } ] }, cw = { tmux = ["send-keys", "-t", "{pane}", "-X", "-N", "3", "scroll-down"] }, color = "nav" }
+knob6 = { label = "Font size",  keys = { cw = "cmd+plus", ccw = "cmd+minus" }, to = "app", color = "sys" }
+knob7 = { label = "Sessions",   cw = { tmux = ["switch-client", "-n"] }, ccw = { tmux = ["switch-client", "-p"] }, color = "nav", sound = "nav" }
+knob8 = { label = "Layouts",    cw = { tmux = ["next-layout", "-t", "{session}:"] }, ccw = { tmux = ["previous-layout", "-t", "{session}:"] }, color = "act" }
+
+# ── pad 11: New (multi-step, so a full table) ──────────────────
+[pad11]
+label = "New"
+color = "new"
+sound = "new"
+desc  = "tap: new window in ~/Projects/own, Claude left | shell right · hold: more options"
+hold  = { picker = "new-session" }
+[[pad11.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude"]
+[[pad11.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+[[pad11.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+# ── shift (PAD BANK B) ────────────────────────────────────────
+[shift]
+pad1  = { label = "Pane 1", tmux = ["select-pane", "-t", "{session}:.1"], color = "nav" }
+pad2  = { label = "Pane 2", tmux = ["select-pane", "-t", "{session}:.2"], color = "nav" }
+pad3  = { label = "Pane 3", tmux = ["select-pane", "-t", "{session}:.3"], color = "nav" }
+pad4  = { label = "Pane 4", tmux = ["select-pane", "-t", "{session}:.4"], color = "nav" }
+pad5  = { label = "Win 9",  tmux = ["select-window", "-t", "{session}:9"], look = "agent_status", win = 9 }
+pad6  = { label = "Win 10", tmux = ["select-window", "-t", "{session}:10"], look = "agent_status", win = 10 }
+pad7  = { label = "Win 11", tmux = ["select-window", "-t", "{session}:11"], look = "agent_status", win = 11 }
+pad8  = { label = "Win 12", tmux = ["select-window", "-t", "{session}:12"], look = "agent_status", win = 12 }
+pad9  = { label = "Split →",   tmux = ["split-window", "-h", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
+pad10 = { label = "Split ↓",   tmux = ["split-window", "-v", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
+pad11 = { label = "Zoom",      tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act" }
+pad12 = { label = "Kill pane", tmux = ["kill-pane", "-t", "{pane}"], confirm = "hold", color = "danger" }
+pad13 = { label = "Copy mode", tmux = ["copy-mode", "-t", "{pane}"], color = "act" }
+pad14 = { label = "Last pane", tmux = ["last-pane", "-t", "{session}:"], color = "nav" }
+pad15 = { label = "Rotate",    tmux = ["rotate-window", "-t", "{session}:"], color = "act" }
+pad16 = { label = "Break out", tmux = ["break-pane", "-s", "{pane}"], color = "act", desc = "move this pane to its own window" }

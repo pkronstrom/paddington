@@ -1,0 +1,79 @@
+# M-VAVE SMC-PAD — from a monitor recording over Bluetooth (2026-10-14).
+# PAD BANK, KNOB BANK, SHIFT, NOTE REPEAT and BT send no MIDI (firmware only).
+name = "M-VAVE SMC-PAD"
+match = "SMC"
+hardware_only = ["bt", "pad_bank", "knob_bank", "shift", "note_repeat"]
+
+[layout]
+pads = [4, 4]
+knobs = [4, 2]
+buttons = ["bt", "pad_bank", "knob_bank", "left", "right", "play", "pause", "rec", "shift", "note_repeat"]
+
+[labels]
+bt = "BT"
+pad_bank = "PAD BANK"
+knob_bank = "KNOB BANK"
+left = "<"
+right = ">"
+play = "▶"
+pause = "⏸"
+rec = "●"
+shift = "SHIFT"
+note_repeat = "NOTE REPEAT"
+
+[controls]
+pad1 = { note = 36, channel = 10 }
+pad2 = { note = 37, channel = 10 }
+pad3 = { note = 38, channel = 10 }
+pad4 = { note = 39, channel = 10 }
+pad5 = { note = 40, channel = 10 }
+pad6 = { note = 41, channel = 10 }
+pad7 = { note = 42, channel = 10 }
+pad8 = { note = 43, channel = 10 }
+pad9 = { note = 44, channel = 10 }
+pad10 = { note = 45, channel = 10 }
+pad11 = { note = 46, channel = 10 }
+pad12 = { note = 47, channel = 10 }
+pad13 = { note = 48, channel = 10 }
+pad14 = { note = 49, channel = 10 }
+pad15 = { note = 50, channel = 10 }
+pad16 = { note = 51, channel = 10 }
+knob1 = { cc = 30, channel = 1, encoding = "absolute" }
+knob2 = { cc = 31, channel = 1, encoding = "absolute" }
+knob3 = { cc = 32, channel = 1, encoding = "absolute" }
+knob4 = { cc = 33, channel = 1, encoding = "absolute" }
+knob5 = { cc = 34, channel = 1, encoding = "absolute" }
+knob6 = { cc = 35, channel = 1, encoding = "absolute" }
+knob7 = { cc = 36, channel = 1, encoding = "absolute" }
+knob8 = { cc = 37, channel = 1, encoding = "absolute" }
+left = { cc = 25, channel = 1 }
+right = { cc = 26, channel = 1 }
+play = { cc = 27, channel = 1 }
+pause = { cc = 28, channel = 1 }
+rec = { cc = 29, channel = 1 }
+
+[controls_bank_b]
+pad1 = { note = 52, channel = 10 }
+pad2 = { note = 53, channel = 10 }
+pad3 = { note = 54, channel = 10 }
+pad4 = { note = 55, channel = 10 }
+pad5 = { note = 56, channel = 10 }
+pad6 = { note = 57, channel = 10 }
+pad7 = { note = 58, channel = 10 }
+pad8 = { note = 59, channel = 10 }
+pad9 = { note = 60, channel = 10 }
+pad10 = { note = 61, channel = 10 }
+pad11 = { note = 62, channel = 10 }
+pad12 = { note = 63, channel = 10 }
+pad13 = { note = 64, channel = 10 }
+pad14 = { note = 65, channel = 10 }
+pad15 = { note = 66, channel = 10 }
+pad16 = { note = 67, channel = 10 }
+knob1 = { cc = 38, channel = 1, encoding = "absolute" }
+knob2 = { cc = 39, channel = 1, encoding = "absolute" }
+knob3 = { cc = 40, channel = 1, encoding = "absolute" }
+knob4 = { cc = 41, channel = 1, encoding = "absolute" }
+knob5 = { cc = 42, channel = 1, encoding = "absolute" }
+knob6 = { cc = 43, channel = 1, encoding = "absolute" }
+knob7 = { cc = 44, channel = 1, encoding = "absolute" }
+knob8 = { cc = 45, channel = 1, encoding = "absolute" }

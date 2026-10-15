@@ -1,0 +1,98 @@
+# Browser ruleset: Firefox, Chrome, Safari, Brave, Arc. Layout grammar: see default.toml.
+# Shortcuts are ones all of them share; ⌘← / ⌘→ are back/forward.
+
+name    = "Browser"
+kind    = "base"
+extends = "default"
+color   = "#4dabf7"
+when    = { app = ["org.mozilla.firefox", "com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "company.thebrowser.Browser"] }
+
+# ── buttons ───────────────────────────────────────────────────
+left  = { label = "Prev tab", keys = "ctrl+shift+tab", color = "nav" }
+right = { label = "Next tab", keys = "ctrl+tab", color = "nav" }
+
+# ── rows 1–2: tabs 1–8 ────────────────────────────────────────
+pad1 = { label = "Tab 1", keys = "cmd+1", color = "nav" }
+pad2 = { label = "Tab 2", keys = "cmd+2", color = "nav" }
+pad3 = { label = "Tab 3", keys = "cmd+3", color = "nav" }
+pad4 = { label = "Tab 4", keys = "cmd+4", color = "nav" }
+pad5 = { label = "Tab 5", keys = "cmd+5", color = "nav" }
+pad6 = { label = "Tab 6", keys = "cmd+6", color = "nav" }
+pad7 = { label = "Tab 7", keys = "cmd+7", color = "nav" }
+pad8 = { label = "Last tab", keys = "cmd+9", color = "nav" }
+
+# ── row 3: lifecycle ──────────────────────────────────────────
+pad9  = { label = "Reopen tab",  keys = "cmd+shift+t", color = "act" }
+pad10 = { label = "Address bar", keys = "cmd+l", color = "act" }
+pad11 = { label = "New tab",     keys = "cmd+t", color = "new" }
+pad12 = { label = "Close tab",   keys = "cmd+w", color = "danger", hold = { keys = "cmd+q" }, hold_time = "2s", desc = "tap: close tab · hold 2 s: quit the browser" }
+
+# ── row 4: search and ask ─────────────────────────────────────
+pad15 = { label = "ChatGPT", keys = "alt+space", color = "skill", hold = { keys = "alt+shift+1" }, desc = "tap: ChatGPT quick ask (⌥Space) · hold: ask about this window (⌥⇧1)" }
+pad16 = { label = "Claude",  keys = "alt alt", color = "skill", desc = "Claude quick entry (double-tap ⌥ — change to match Claude › Settings › Quick entry)" }
+
+# ── knobs ─────────────────────────────────────────────────────
+knob1 = { label = "Scroll",     keys = { cw = "down", ccw = "up" }, color = "nav", repeat = "accel" }
+knob2 = { label = "← →",        keys = { cw = "right", ccw = "left" }, color = "nav" }
+knob3 = { label = "Tabs",       keys = { cw = "ctrl+tab", ccw = "ctrl+shift+tab" }, color = "nav", sound = "nav" }
+knob4 = { label = "Windows",    cw = { window = "next" }, ccw = { window = "prev" }, color = "nav", sound = "nav" }
+knob5 = { label = "Page ↑ ↓",   keys = { cw = "pagedown", ccw = "pageup" }, color = "nav" }
+knob6 = { label = "Zoom",       keys = { cw = "cmd+plus", ccw = "cmd+minus" }, color = "sys" }
+knob7 = { label = "History",    keys = { cw = "cmd+right", ccw = "cmd+left" }, color = "nav", sound = "nav" }
+knob8 = { label = "Find next",  keys = { cw = "cmd+g", ccw = "cmd+shift+g" }, color = "act" }
+
+# ── shift (PAD BANK B) ────────────────────────────────────────
+[shift]
+pad1  = { label = "Find",        keys = "cmd+f", color = "act" }
+pad2  = { label = "Bookmark",    keys = "cmd+d", color = "act" }
+pad3  = { label = "Reset zoom",  keys = "cmd+0", color = "sys" }
+pad4  = { label = "Hard reload", keys = "cmd+shift+r", color = "act" }
+pad5  = { label = "DevTools",    keys = "cmd+alt+i", color = "sys" }
+pad9  = { label = "Back",        keys = "cmd+left", color = "nav" }
+pad10 = { label = "Forward",     keys = "cmd+right", color = "nav" }
+pad11 = { label = "New window",  keys = "cmd+n", color = "new" }
+pad13 = { label = "Reload",      keys = "cmd+r", color = "act" }
+pad6  = { label = "Page source", keys = "cmd+alt+u", color = "sys" }
+
+# ── pads 13–14: search (multi-step, so full tables) ───────────
+[pad13]
+label = "Google"
+color = "nav"
+desc  = "tap: new Google tab · hold: search the selected text on Google"
+[[pad13.seq]]
+keys = "cmd+t"
+[[pad13.seq]]
+wait = 0.25
+[[pad13.seq]]
+text = "https://www.google.com\n"
+[[pad13.hold.seq]]
+keys = "cmd+c"
+[[pad13.hold.seq]]
+wait = 0.2
+[[pad13.hold.seq]]
+keys = "cmd+t"
+[[pad13.hold.seq]]
+wait = 0.25
+[[pad13.hold.seq]]
+text = "https://www.google.com/search?q=%CLIPBOARD_Q%\n"
+
+[pad14]
+label = "DuckDuckGo"
+color = "nav"
+desc  = "tap: new DuckDuckGo tab · hold: search the selected text on DuckDuckGo"
+[[pad14.seq]]
+keys = "cmd+t"
+[[pad14.seq]]
+wait = 0.25
+[[pad14.seq]]
+text = "https://duckduckgo.com\n"
+[[pad14.hold.seq]]
+keys = "cmd+c"
+[[pad14.hold.seq]]
+wait = 0.2
+[[pad14.hold.seq]]
+keys = "cmd+t"
+[[pad14.hold.seq]]
+wait = 0.25
+[[pad14.hold.seq]]
+text = "https://duckduckgo.com/?q=%CLIPBOARD_Q%\n"

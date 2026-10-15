@@ -1,0 +1,4 @@
+[codex-commands]
+title = "Codex command"
+items = ["review", "diff", "status", "mention", "init", "new", "model", "approvals", "mcp"]
+run   = { text = "/{item}\n" }

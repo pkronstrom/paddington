@@ -1,0 +1,10 @@
+# build output
+.build/
+.swiftpm/
+*.xcodeproj/
+DerivedData/
+
+# local / third-party material
+.media/
+*.bak
+.DS_Store

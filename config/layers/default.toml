@@ -1,0 +1,84 @@
+# Default ruleset: any app without its own ruleset. Other rulesets extend it.
+#
+# Layout grammar — the same spot means the same kind of thing in every ruleset:
+#   knobs  row 1 (1, 2)  move inside: ↑↓ · ←→          row 2 (3, 4)  switch: windows/tabs · panes/app windows
+#          row 3 (5, 6)  view: scroll · zoom          row 4 (7, 8)  settings: model · thinking (agents)
+#   pads   rows 1–2 (1–8) slots / targets   row 3 (9–12) lifecycle: new … close   row 4 (13–16) this app's verbs
+#   buttons  < > prev/next window or tab · ▶ Enter (hold: legend) · ⏸ Esc · ● Talk
+#   PAD BANK B = the pads' [shift] bindings · KNOB BANK B = the knobs' [shift] bindings (system knobs, set here)
+#
+# Binding = one action plus optional extras:
+#   keys = "cmd+shift+t"   text = "hi\n"   open = "Safari"   shortcut = "Name"   menu = ["File", "Export"]
+#   tmux = [...]   exec = ["prog", "arg"]   script = "name"   prompt = "name"   picker = "id"   seq = [ {...}, ... ]
+# extras: label, color (category or #hex), look, desc, confirm = "hold", hold = { <action> }, then = "<modal layer>",
+#         passthrough = "<key>", if = "<expression>", to = "app" | "pane",
+#         knobs: keys = { cw = "...", ccw = "..." } or cw = { <action> }, ccw = { <action> }
+# Inline tables { … } must stay on one line; for multi-step actions use a [padN] table with [[padN.seq]] steps.
+
+name  = "Default"
+kind  = "base"
+color = "#868e96"
+
+# ── buttons ───────────────────────────────────────────────────
+left  = { label = "Prev tab", keys = "ctrl+shift+tab", color = "nav" }
+right = { label = "Next tab", keys = "ctrl+tab", color = "nav" }
+play  = { label = "Enter",    keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
+pause = { label = "Esc",      keys = "esc", color = "warn", desc = "Esc on press" }
+rec   = { label = "Talk",     passthrough = "rightcmd", color = "voice", desc = "hold or tap-tap: right ⌘ for VoiceInk" }
+
+# ── rows 1–2: editing ─────────────────────────────────────────
+pad1  = { label = "Copy",       keys = "cmd+c" }
+pad2  = { label = "Paste",      keys = "cmd+v" }
+pad3  = { label = "Undo",       keys = "cmd+z", color = "warn" }
+pad4  = { label = "Redo",       keys = "cmd+shift+z", color = "warn" }
+pad5  = { label = "Cut",        keys = "cmd+x" }
+pad6  = { label = "Select all", keys = "cmd+a" }
+pad7  = { label = "Find",       keys = "cmd+f" }
+pad8  = { label = "Save",       keys = "cmd+s", color = "ok" }
+
+# ── row 3: lifecycle ──────────────────────────────────────────
+pad9  = { label = "Next window", window = "next", color = "nav" }
+pad10 = { label = "New tab",     keys = "cmd+t", color = "new" }
+pad11 = { label = "New",         keys = "cmd+n", color = "new" }
+pad12 = { label = "Close",       keys = "cmd+w", color = "danger", hold = { keys = "cmd+q" }, hold_time = "2s", desc = "tap: close tab/window (⌘W) · hold 2 s: quit the app (⌘Q)" }
+
+# ── row 4: utilities ──────────────────────────────────────────
+pad13 = { label = "Screenshot", keys = "cmd+shift+4", color = "sys" }
+pad14 = { label = "Emoji",      keys = "ctrl+cmd+space" }
+pad15 = { label = "Fullscreen", keys = "ctrl+cmd+f", color = "sys" }
+pad16 = { label = "Spotlight",  keys = "cmd+space", color = "skill" }
+
+# ── knobs ─────────────────────────────────────────────────────
+knob1 = { label = "↑ ↓",         keys = { cw = "down", ccw = "up" }, color = "nav", repeat = "accel" }
+knob2 = { label = "← →",         keys = { cw = "right", ccw = "left" }, color = "nav", repeat = "accel" }
+knob3 = { label = "Tabs",        keys = { cw = "ctrl+tab", ccw = "ctrl+shift+tab" }, color = "nav", sound = "nav" }
+knob4 = { label = "App windows", cw = { window = "next" }, ccw = { window = "prev" }, color = "nav", sound = "nav" }
+knob5 = { label = "Page ↑ ↓",    keys = { cw = "pagedown", ccw = "pageup" }, color = "nav" }
+knob6 = { label = "Zoom",        keys = { cw = "cmd+plus", ccw = "cmd+minus" }, color = "sys" }
+knob7 = { label = "Undo / Redo", keys = { cw = "cmd+shift+z", ccw = "cmd+z" }, color = "warn" }
+
+# ── shift: PAD BANK B (pads) and KNOB BANK B (knobs) ──────────
+[shift]
+# rows 1–2: apps
+pad1  = { label = "iTerm",    open = "iTerm", color = "nav" }
+pad2  = { label = "Chrome",   open = "Google Chrome", color = "nav" }
+pad3  = { label = "Firefox",  open = "Firefox", color = "nav" }
+pad4  = { label = "Discord",  open = "Discord", color = "nav" }
+pad5  = { label = "Cursor",   open = "Cursor", color = "nav" }
+pad6  = { label = "VS Code",  open = "Visual Studio Code", color = "nav" }
+pad7  = { label = "Obsidian", open = "Obsidian", color = "nav" }
+pad8  = { label = "Safari",   open = "Safari", color = "nav" }
+# row 3: window tiling (macOS 15) … quit
+pad9  = { label = "◧ Left",   keys = "fn+ctrl+left", color = "act" }
+pad10 = { label = "Right ◨",  keys = "fn+ctrl+right", color = "act" }
+pad11 = { label = "Fill",     keys = "fn+ctrl+f", color = "act" }
+pad12 = { label = "Force quit…", keys = "cmd+alt+esc", color = "danger" }
+# row 4: system
+pad13 = { label = "Screen tools", keys = "cmd+shift+5", color = "sys" }
+pad14 = { label = "Sound",        open = "x-apple.systempreferences:com.apple.Sound-Settings.extension", color = "sys" }
+pad15 = { label = "Bluetooth",    open = "x-apple.systempreferences:com.apple.BluetoothSettings", color = "sys" }
+pad16 = { label = "Activity Mon", open = "Activity Monitor", color = "sys" }
+# KNOB BANK B: system knobs everywhere (knobs not set here keep their normal action)
+knob1 = { label = "Volume",      cw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) + 4)"] }, ccw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) - 4)"] }, color = "sys" }
+knob3 = { label = "Desktops",    keys = { cw = "ctrl+right", ccw = "ctrl+left" }, to = "app", color = "sys" }
+knob4 = { label = "App windows", cw = { window = "next" }, ccw = { window = "prev" }, to = "app", color = "nav" }

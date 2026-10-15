@@ -1,0 +1,66 @@
+# padctl settings. Reloads automatically when saved.
+
+device = "m-vave-smc-pad"          # file in devices/
+
+[roles]                            # optional: a control that acts as a held modifier
+# shift  = "<control>"             # hold for each layer's [shift] bindings (SMC-PAD: its SHIFT sends no MIDI)
+# legend = "<control>"             # hold: show the legend · tap: pin it
+
+[banks]
+pad_b = "shift"                    # PAD BANK B = each layer's [shift] bindings ("default" = Default layer)
+
+[timing]
+hold = "450ms"                     # tap vs hold
+confirm_hold = "1s"                # confirm = "hold" bindings
+legend_pin = "8s"
+passthrough_limit = "5m"           # safety release for held keys (talk)
+
+[legend]
+position = "bottom-right"          # bottom-right | bottom-left | top-right | top-left | center
+scale = 1.0                        # legend size: 0.8 = smaller, 1.2 = larger (0.5–2)
+reduced_motion = false
+
+[colors]                           # categories usable as color = "<name>"; add your own
+# nav = "#4dabf7"
+
+[sounds]                           # short feedback sounds; a binding can set sound = "<name>" or "" (silent)
+enabled = true
+volume  = 0.25                     # 0–1
+# by colour group (a binding's color) — macOS sounds: Basso Blow Bottle Frog Funk Glass Hero Morse Ping Pop Purr Sosumi Submarine Tink
+nav    = "click@0.6"               # windows, tabs, panes — soft generated click
+act    = "Pop"
+skill  = "Bottle"
+danger = "Basso"                   # close, kill, clear
+sys    = "click@0.6"
+ok     = ""                        # Enter: silent
+warn   = ""                        # Esc: silent
+# named sounds
+new    = "Hero"                    # New session
+mode   = "Purr"
+picker = "Morse"                   # a list opens
+select = "Pop"                     # a list or menu item is chosen
+scroll = "tick@0.5"                # each step in a list/menu — built-ins: tick, click; "@0.5" = half volume
+cancel = "Blow"                    # ⏸ / ✕ Cancel / backing out of a menu
+error  = "Funk"                    # an action failed
+drum_full  = 48                     # velocity that counts as a full hit (the SMC-PAD sends ~10 soft … ~40 firm)
+drum_curve = 0.5                   # loudness vs. how hard you hit: 1 = linear, lower = soft hits louder
+drum_floor = 0.55                  # loudness of the softest hit (0–1); 1 = every hit full volume
+# drums on empty window pads — Roland TR-707 samples (public domain, sounds/tr707/README.txt); any .wav/.aiff path works
+kick     = "sounds/tr707/BassDrum1.wav@4"
+snare    = "sounds/tr707/Snare1.wav@4"
+hat      = "sounds/tr707/HhC.wav@4"
+openhat  = "sounds/tr707/HhO.wav@4"
+clap     = "sounds/tr707/HandClap.wav@4"
+tom_low  = "sounds/tr707/LowTom.wav@4"
+tom_high = "sounds/tr707/HiTom.wav@4"
+cowbell  = "sounds/tr707/CowBell.wav@4"
+
+[led]                              # pad lights over Bluetooth (bank A = normal layer, bank B = shift layer)
+mode = "live"                      # live: groups + agent status · groups: group colours only · off
+brightness = 1.0                   # pads in general (0–1)
+window_brightness = 0.3            # other windows' pads; the current window is always full brightness
+night = 0.3                        # padctl menu › Dim pad lights (night) multiplies every level by this
+# colours by group / status / mode — override any, e.g.:
+# nav = "#0000ff"                  # windows
+# working = "#00ffff"
+# needs_input = "#ffff00"

@@ -1,0 +1,112 @@
+# New-session pickers (hold New). Each item runs its own action; {item} = the chosen folder in project lists.
+# Multi-step actions use TOML's [[...seq]] tables: one table per step, in order.
+
+[new-session]
+title = "New"
+
+[[new-session.items]]
+label = "Claude · split"
+[[new-session.items.run.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude"]
+[[new-session.items.run.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+[[new-session.items.run.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+[[new-session.items]]
+label = "Codex · split"
+[[new-session.items.run.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "codex"]
+[[new-session.items.run.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+[[new-session.items.run.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+[[new-session.items]]
+label = "Claude + Codex"
+[[new-session.items.run.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude"]
+[[new-session.items.run.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own", "codex"]
+[[new-session.items.run.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+[[new-session.items]]
+label = "Claude worktree (dictate task)…"
+run = { input = "Task for a new Claude worktree", run = { exec = ["workmux", "add", "-A", "-p", "{input}"] } }
+
+[[new-session.items]]
+label = "Codex worktree (dictate task)…"
+run = { input = "Task for a new Codex worktree", run = { exec = ["workmux", "add", "-A", "-a", "codex", "-p", "{input}"] } }
+
+[[new-session.items]]
+label = "Claude in project…"
+run = { picker = "project-claude" }
+
+[[new-session.items]]
+label = "Codex in project…"
+run = { picker = "project-codex" }
+
+[[new-session.items]]
+label = "Claude here"
+[[new-session.items.run.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{pane_path}", "claude"]
+[[new-session.items.run.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{pane_path}"]
+[[new-session.items.run.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+[[new-session.items]]
+label = "Continue last Claude"
+[[new-session.items.run.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude --continue"]
+[[new-session.items.run.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+[[new-session.items.run.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+[[new-session.items]]
+label = "Shell window here"
+run = { tmux = ["new-window", "-t", "{session}:", "-c", "{pane_path}"] }
+
+[project-claude]
+title  = "Claude in…"
+source = "dirs"
+path   = "~/Projects/own"
+[[project-claude.run.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{item}", "claude"]
+[[project-claude.run.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{item}"]
+[[project-claude.run.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+[project-codex]
+title  = "Codex in…"
+source = "dirs"
+path   = "~/Projects/own"
+[[project-codex.run.seq]]
+tmux = ["new-window", "-t", "{session}:", "-c", "{item}", "codex"]
+[[project-codex.run.seq]]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{item}"]
+[[project-codex.run.seq]]
+tmux = ["select-pane", "-t", "{session}:", "-L"]
+
+# Hold Close (1 s) → pick how to close; choosing is the confirmation.
+[close]
+title = "Close"
+
+[[close.items]]
+label = "Close window"
+run = { tmux = ["kill-window", "-t", "{session}:{window}"] }
+
+[[close.items]]
+label = "Close worktree window (keep worktree)"
+run = { exec = ["workmux", "close"] }
+
+[[close.items]]
+label = "Merge worktree into base"
+run = { exec = ["workmux", "merge"] }
+
+[[close.items]]
+label = "Remove worktree + branch (no merge)"
+run = { exec = ["workmux", "remove", "-f"] }

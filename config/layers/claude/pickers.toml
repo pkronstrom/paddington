@@ -1,0 +1,36 @@
+# Pickers: a knob scrolls the list in the legend, ▶ runs `run` with {item}, ⏸ cancels.
+
+[skills]
+title  = "Skill"
+source = "claude-skills"           # ~/.claude/skills and ~/.claude/commands
+pin    = ["rev", "work", "handoff", "pr", "simplify", "whats-next", "bb"]
+run    = { text = "/{item} " }     # trailing space: dictate arguments, then ▶
+
+[model]
+title = "Model"
+# value = what /model accepts (alias or full id); label = what the legend shows. Edit as models change.
+items = [ { label = "Default", value = "default" },
+          { label = "Opus 5.5", value = "opus" },
+          { label = "Fable 5.1", value = "fable" },
+          { label = "Sonnet 5.5", value = "sonnet" },
+          { label = "Haiku 5.5", value = "haiku" },
+          { label = "Opus 5.5 · 1M", value = "opus[1m]" },
+          { label = "Fable 5.1 · 1M", value = "fable[1m]" },
+          { label = "Opus plan mode", value = "opusplan" } ]
+run   = { text = "/model {item}\n" }
+
+[effort]
+title = "Thinking level"
+items = ["low", "medium", "high", "xhigh", "max", "auto"]
+run   = { text = "/effort {item}\n" }
+
+[modes]
+title = "Permission mode"
+items = [ { label = "Manual", value = "default" }, { label = "Accept edits", value = "acceptEdits" },
+          { label = "Plan", value = "plan" }, { label = "Auto", value = "auto" } ]
+run   = { mode = "{item}" }
+
+[prompts]
+title  = "Prompt"
+source = "prompts"
+run    = { prompt = "{item}" }

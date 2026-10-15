@@ -1,0 +1,35 @@
+# Menu navigation: entered after a binding with then = "menu-nav" (e.g. Rewind, /model).
+# padctl can't see the menu — read it in the terminal. Knobs move, any pad or ▶ selects, ⏸ backs out.
+name    = "Menu"
+kind    = "modal"
+color   = "#ffd43b"
+timeout = "30s"
+exit    = ["play", "left", "right", "pad1", "pad2", "pad3", "pad4", "pad5", "pad6", "pad7", "pad8",
+           "pad9", "pad10", "pad11", "pad12", "pad13", "pad14", "pad15", "pad16"]   # select: counts then_steps
+cancel  = ["pause"]                # ⏸ leaves at once
+
+knob1 = { label = "↑ ↓",  keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav", sound = "scroll" }
+knob2 = { label = "Page", keys = { cw = "pagedown", ccw = "pageup" }, to = "pane", color = "nav", sound = "scroll" }
+knob4 = { label = "← →",  keys = { cw = "right", ccw = "left" }, to = "pane", color = "nav", sound = "scroll" }
+knob7 = { label = "↑ ↓",  keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav", sound = "scroll" }
+knob8 = { label = "↑ ↓",  keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav", sound = "scroll" }
+play  = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pause = { label = "Back",   keys = "esc", to = "pane", color = "warn", sound = "cancel" }
+left  = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+right = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad1 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad2 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad3 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad4 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad5 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad6 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad7 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad8 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad9 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad10 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad11 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad12 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad13 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad14 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad15 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pad16 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
