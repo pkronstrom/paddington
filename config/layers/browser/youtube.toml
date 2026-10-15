@@ -1,0 +1,25 @@
+# YouTube in the browser (the tab's title ends in " - YouTube"). Rows 1–2 are the player; the rest stays
+# the browser's. Keys go to the page, so click away from the search box first if typing lands there.
+
+name    = "YouTube"
+kind    = "base"
+extends = "browser"
+priority = 1     # a video title can say anything; the " - YouTube" ending decides
+color   = "#fa5252"
+when    = { app = ["org.mozilla.firefox", "com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "company.thebrowser.Browser"], window = " - YouTube$" }
+
+# ── row 1: playback ───────────────────────────────────────────
+pad1 = { label = "⏯ Play",   keys = "k", color = "ok", desc = "play / pause (K)" }
+pad2 = { label = "−10 s",    keys = "j", color = "nav" }
+pad3 = { label = "+10 s",    keys = "l", color = "nav" }
+pad4 = { label = "Next ⏭",   keys = "shift+n", color = "nav", desc = "next video (⇧N)" }
+
+# ── row 2: view ───────────────────────────────────────────────
+pad5 = { label = "Fullscreen", keys = "f", color = "sys" }
+pad6 = { label = "Theater",    keys = "t", color = "sys" }
+pad7 = { label = "Captions",   keys = "c", color = "skill" }
+pad8 = { label = "Mute",       keys = "m", color = "act" }
+
+# ── knobs 7–8: speed and seek ─────────────────────────────────
+knob7 = { label = "Speed",      keys = { cw = ">", ccw = "<" }, color = "act", desc = "playback speed (> / <)" }
+knob8 = { label = "Seek 10 s",  keys = { cw = "l", ccw = "j" }, color = "nav" }

@@ -12,6 +12,8 @@ public final class LegendModel: ObservableObject {
     @Published public var connection = ""
     @Published public var connected = false
     @Published public var footer = ""
+    /// The agent statuses showing on window pads right now, with their light colour: the legend's colour key.
+    @Published public var statusKey: [StatusKeyItem] = []
     @Published public var pressed: Set<String> = []
     @Published public var picker: PickerState?
     @Published public var scale: CGFloat = 1
@@ -46,6 +48,12 @@ extension EnvironmentValues {
         get { self[LegendScaleKey.self] }
         set { self[LegendScaleKey.self] = newValue }
     }
+}
+
+public struct StatusKeyItem: Equatable {
+    public var label: String
+    public var hex: String
+    public init(label: String, hex: String) { self.label = label; self.hex = hex }
 }
 
 /// What a control's light shows (same as the pad LEDs): LED colour + level.
@@ -108,6 +116,17 @@ struct PadView: View {
                     Text(a?.label ?? "").font(.system(size: 10 * k, weight: .bold))
                         .lineLimit(2).minimumScaleFactor(0.7)
                         .foregroundStyle(bound ? Hw.ink(light) : Color.black.opacity(0.35))
+                    // window pads: what the agent is doing ("working", "asks", "done ✓"…)
+                    // (several agents in one window: a line each, shrunk to fit — "Claude approve?" / "Codex working")
+                    if let n = a?.note, !n.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(n.split(separator: "\n").enumerated()), id: \.offset) { _, line in
+                                Text(String(line)).font(.system(size: 8 * k, weight: .semibold)).italic()
+                                    .lineLimit(1).minimumScaleFactor(0.6)
+                            }
+                        }
+                        .foregroundStyle(Hw.ink(light).opacity(0.85))
+                    }
                     Spacer(minLength: 0)
                     if let alt = a?.altLabel, !alt.isEmpty {
                         Text(alt).font(.system(size: 7.5 * k, weight: .medium))
@@ -283,6 +302,16 @@ public struct LegendView: View {
                     }
                 }
                 .frame(height: gridH)
+            }
+            if !m.statusKey.isEmpty {
+                HStack(spacing: 8 * k) {
+                    ForEach(m.statusKey, id: \.label) { item in
+                        HStack(spacing: 3 * k) {
+                            Circle().fill(Hw.tone(LegendLight(hex: item.hex, level: 1)) ?? .gray).frame(width: 7 * k, height: 7 * k)
+                            Text(item.label).font(.system(size: 8.5 * k, weight: .medium)).foregroundStyle(Hw.print.opacity(0.8))
+                        }
+                    }
+                }
             }
             if !m.footer.isEmpty {
                 Text(m.footer).font(.system(size: 9 * k))

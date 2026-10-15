@@ -100,6 +100,13 @@ public final class Executor {
             case .wait(let d): usleep(useconds_t(max(0, min(d, 10)) * 1_000_000))
             case .setMode(let pane, let target): return setMode(pane: pane, target: target)
             case .cycleWindow(let next): try Menu.cycleWindow(next: next)
+            case .focusWindow(let id): try WindowList.focus(id)
+            case .pressButton(let names): try Menu.pressButton(names)
+            case .openApp(let app):
+                // `open` sends a Dock click (reopen): a window appears even if the app had none — and iTerm shows
+                // its hotkey window. Bundle ids go by -b, names by -a.
+                let isId = app.contains(".") && !app.contains(" ") && NSWorkspace.shared.urlForApplication(withBundleIdentifier: app) != nil
+                return check(Shell.run(["open", isId ? "-b" : "-a", app]), what: "open \(app)")
             }
         } catch {
             fail()
@@ -167,6 +174,46 @@ public final class Executor {
 
 /// Click a menu item of the frontmost app through Accessibility.
 public enum Menu {
+    /// Press a button of the front app by its accessible name (title or description, any case) — for things with
+    /// no shortcut, like Discord's camera. The first name found wins. Electron apps (Discord, Slack…) only build
+    /// their accessibility tree when asked, so the first press may need a moment.
+    public static func pressButton(_ names: [String]) throws {
+        guard let app = NSWorkspace.shared.frontmostApplication else { throw KeyError("no frontmost app") }
+        let ax = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(ax, 0.5)
+        AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        let wanted = names.map { $0.lowercased() }
+        let t0 = Date()
+        for attempt in 0..<4 {
+            if let (b, label, seen) = findButton(ax, wanted) {
+                AXUIElementPerformAction(b, kAXPressAction as CFString)
+                Log.write("pressed “\(label)” in \(app.localizedName ?? "?") (\(seen) elements, \(Int(Date().timeIntervalSince(t0) * 1000)) ms)")
+                return
+            }
+            if attempt < 3 { usleep(250_000) }
+        }
+        throw KeyError("no “\(names[0])” button in \(app.localizedName ?? "the app") right now")
+    }
+
+    /// Breadth-first through the app's windows; the first button with any of the names (they're alternatives,
+    /// like "Turn On Camera" / "Turn Off Camera", so only one is there at a time).
+    static func findButton(_ app: AXUIElement, _ wanted: [String]) -> (AXUIElement, String, Int)? {
+        func attr(_ e: AXUIElement, _ k: String) -> CFTypeRef? { var v: CFTypeRef?; return AXUIElementCopyAttributeValue(e, k as CFString, &v) == .success ? v : nil }
+        var queue = (attr(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+        var seen = 0
+        while !queue.isEmpty, seen < 40_000 {
+            let e = queue.removeFirst(); seen += 1
+            let role = attr(e, kAXRoleAttribute) as? String ?? ""
+            if role == kAXButtonRole as String || role == kAXCheckBoxRole as String || role == "AXSwitch" || role == kAXRadioButtonRole as String {
+                for k in [kAXTitleAttribute, kAXDescriptionAttribute] {
+                    if let s = attr(e, k) as? String, wanted.contains(s.lowercased()) { return (e, s, seen) }
+                }
+            }
+            queue += (attr(e, kAXChildrenAttribute) as? [AXUIElement]) ?? []
+        }
+        return nil
+    }
+
     /// Raise the frontmost app's next (back-most) or previous window.
     public static func cycleWindow(next: Bool) throws {
         guard let app = NSWorkspace.shared.frontmostApplication else { throw KeyError("no frontmost app") }

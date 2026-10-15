@@ -21,6 +21,9 @@ public enum PlanStep: Equatable {
     case wait(Double)
     case setMode(pane: String, target: String)   // closed loop: read the mode line, Shift+Tab until it matches
     case cycleWindow(next: Bool)                  // frontmost app's windows
+    case openApp(String)                          // bring to front / launch, like a Dock click (bundle id or name)
+    case focusWindow(String)                      // a window of any app ("pid␟index␟title")
+    case pressButton([String])                    // the front app's button by name (Accessibility)
 }
 
 public struct Plan: Equatable {
@@ -37,6 +40,7 @@ public enum EngineOutput: Equatable {
     case redraw
     case input(InputRequest)
     case search                     // a picker with a search box opened: the app shows a text field for it
+    case dictate                    // start hands-free dictation (the app taps the talk key)
 }
 
 /// The app asks the user for text, then hands it back with `Engine.submitInput`.
@@ -57,7 +61,8 @@ public struct Appearance: Equatable {
     public var selected = false
     public var altLabel = ""        // the label in the other shift state (shown small and grey)
     public var key: String?         // colour key for pad lights: category, agent status or mode
-    public var windowSlot = false   // a window pad (win = N): dimmer unless it's the current window
+    public var windowSlot = false   // a slot pad (a window, an app): dimmer unless it's the current one
+    public var note = ""            // a short status under the label (window pads: what the agent is doing)
 }
 
 public struct StackEntry: Equatable {
@@ -73,7 +78,7 @@ public struct StackEntry: Equatable {
 // MARK: - Built-in looks
 
 public enum Looks {
-    public static let builtins: Set<String> = ["agent_status", "waiting", "agent_working", "agent_mode", "current_window", "context_meter"]
+    public static let builtins: Set<String> = ["agent_status", "waiting", "agent_working", "agent_mode", "current_window", "context_meter", "attention", "choice"]
 
     /// Context fill → colour key: below 50 % calm, 50–80 % warn, above 80 % danger. Unknown: the binding's own colour.
     static func contextKey(_ snap: Snapshot) -> String? {
@@ -94,6 +99,8 @@ public enum Looks {
         case "agent_working": return snapshot["agent.status"].string == "working" ? "warn" : "off"
         case "agent_mode": return snapshot["agent.mode"].string.map { "mode_" + $0 } ?? "sys"
         case "context_meter": return contextKey(snapshot) ?? binding.color
+        case "attention": return binding.color
+        case "choice": return choiceKey(binding, snapshot)
         default: return nil
         }
     }
@@ -121,12 +128,35 @@ public enum Looks {
         case "current_window":
             let w = binding.params["win"]?.int ?? -1
             return snapshot["window"].int == w ? (settings.color("ok"), false, nil) : nil
+        case "attention":       // asks for you: blinks in its own colour
+            return (settings.color(binding.color) ?? settings.color("warn"), !settings.reducedMotion, nil)
+        case "choice":
+            let k = choiceKey(binding, snapshot)
+            return (settings.color(k), k == "ok" && !settings.reducedMotion, nil)
         case "context_meter":
             guard let key = contextKey(snapshot), let c = snapshot["agent.context"].number else { return nil }
-            return (settings.color(key), c >= 90 && !settings.reducedMotion, "\(binding.label ?? "Compact") \(Int(c))%")
+            return (settings.color(key), false, "\(binding.label ?? "Compact") \(Int(c))%")   // blinking = an agent waits for you
         default: return nil
         }
     }
+
+    /// An option pad of an agent's question: the option under the agent's cursor (what ▶ / Enter takes) is green
+    /// and blinks — the one pad saying "answer me now"; options answered in words ("Type something", "Chat about
+    /// this") are magenta (voice), the rest white. Pads past the last option are off: nothing from the layer below.
+    static func choiceKey(_ binding: Binding, _ snap: Snapshot) -> String {
+        guard case .answer(let n) = binding.action else { return binding.color ?? "choice" }
+        if n > (snap["q.count"].int ?? 0) { return "off" }
+        if n == (snap["q.selected"].int ?? 1) { return "ok" }
+        return isFree(n, snap) ? "choice_voice" : "choice"
+    }
+    static func isFree(_ n: Int, _ snap: Snapshot) -> Bool { snap["q.free.\(n)"].truthy || snap["q.other"].int == n }
+
+    /// Words for agent statuses, as the legend shows them under window pads and in its colour key.
+    public static let statusWords: [(String, String)] = [
+        ("needs_input", "asks"), ("needs_approval", "approve?"), ("working", "working"), ("compacting", "compacting"),
+        ("done_unread", "done ✓"), ("idle", "idle"), ("error", "error"), ("unknown", "no status"),
+    ]
+    public static func statusLabel(_ s: String) -> String { statusWords.first { $0.0 == s }?.1 ?? s }
 
     public static func modeLabel(_ m: String) -> String {
         ["default": "Manual", "acceptEdits": "Accept edits", "plan": "Plan", "auto": "Auto",
@@ -156,6 +186,26 @@ public final class Engine {
     private var lastBaseId: String?
     public private(set) var picker: PickerState?
     public var lastEvent = ""                       // for the app's log: why something closed
+
+    /// An action waiting for ✓ / ✕ (confirm = "ask", or a picker with confirm = true).
+    public struct PendingConfirm {
+        var action: Action; var binding: Binding; var layer: Layer; var control: String
+        public var label: String; var vars: [String: Value]
+    }
+    public private(set) var pendingConfirm: PendingConfirm?
+    static let confirmLayer = "confirm"
+    static let listLayer = "list"           // on top while a list is open: green ✓ takes, red ✕ closes
+
+    func askConfirm(_ p: PendingConfirm, now: Double) -> [EngineOutput] {
+        guard let cl = config.layers[Engine.confirmLayer] else {
+            return [.plan(Plan(steps: [.toast("No confirm layer — not running “\(p.label)”")], pane: nil, agentSession: nil, label: "confirm"))]
+        }
+        pendingConfirm = p
+        stack.removeAll { $0.layer == Engine.confirmLayer }
+        let t = cl.timeout ?? 8
+        stack.append(StackEntry(layer: cl.id, activation: .modal, expires: now + t, trigger: p.control, started: now, timeout: t))
+        return [.plan(Plan(steps: [.toast("\(p.label)? ✓ green · ✕ red")], pane: nil, agentSession: nil, label: "confirm", sound: "picker")), .redraw]
+    }
     public func isHeld(_ control: String) -> Bool { presses[control] != nil }
     private var extraVars: [String: Value] = [:]
     public static let pickerTimeout = 20.0
@@ -195,6 +245,7 @@ public final class Engine {
     /// Layers from bottom (base) to top.
     public func effectiveStack(_ ctx: Context, _ snap: Snapshot = Snapshot()) -> [Layer] {
         [baseLayer(ctx)] + autoLayers(snap) + stack.compactMap { config.layers[$0.layer] }
+            + (picker != nil ? [config.layers[Engine.listLayer]].compactMap { $0 } : [])
     }
 
     /// Modal layers whose `auto` condition holds (e.g. Answer while the focused agent asks).
@@ -241,6 +292,7 @@ public final class Engine {
             let ch = chain(l)
             if shift ?? shiftActive(for: control) { for c in ch { if let b = c.shift[control], ok(b) { return (pick(b, ch, true), l) } } }
             for c in ch { if let b = c.bindings[control], ok(b) { return (pick(b, ch, false), l) } }
+            if l.exclusive, control.hasPrefix("pad") { return nil }   // e.g. confirm: the other pads are off (knobs still work)
         }
         return nil
     }
@@ -290,6 +342,11 @@ public final class Engine {
             presses[c] = Press(binding: b2, layer: l2, down: now, fired: false, role: nil)
         }
         presses[c] = presses[c] ?? Press(binding: b, layer: l, down: now, fired: false, role: nil)
+        if b.confirmAsk, let a = b.action {
+            presses[c]?.fired = true
+            return askConfirm(PendingConfirm(action: a, binding: b, layer: l, control: c,
+                                             label: b.label.map { interpolate($0, snap.lookup) } ?? defaultLabel(b, layer: l), vars: [:]), now: now)
+        }
         // a chord: another control is held down (e.g. ● Talk while pressing Skills…) → its `with` action instead
         if let (_, act) = b.with.first(where: { presses[$0.key] != nil && $0.key != c }) {
             presses[c]?.fired = true
@@ -377,7 +434,12 @@ public final class Engine {
         let before = stack.count
         stack.removeAll { e in e.expires.map { $0 <= now } ?? false }
         if stack.count != before { out.append(.redraw) }
+        if pendingConfirm != nil, !stack.contains(where: { $0.layer == Engine.confirmLayer }) {
+            pendingConfirm = nil; out.append(soundOnly("cancel"))
+        }
         if let p = picker, p.expires <= now { picker = nil; out.append(.redraw) }
+        // the knob rested: take the highlighted item (the window list)
+        if let at = picker?.commitAt, at <= now { out += commitPicker(now: now, ctx: ctx, snap: snap) }
         for (c, h) in heldKeys where now - h.since > config.settings.passthroughLimitSeconds {
             heldKeys[c] = nil
             out.append(.plan(Plan(steps: [.keyUp(h.chord), .toast("Released \(h.chord) after the safety limit")], pane: nil, agentSession: nil, label: "safety")))
@@ -397,7 +459,8 @@ public final class Engine {
 
     // MARK: pickers
 
-    /// While a picker is open: knobs move, ⏸ cancels, any other pad or button selects (and does nothing else).
+    /// While a picker is open: knobs (and < >) move. With the List layer (layers/list.toml) its green ✓ takes the
+    /// highlighted item, its red ✕ closes the list and other pads do nothing; without it any control selects.
     func pickerInput(_ e: ControlEvent, now: Double, ctx: Context, snap: Snapshot) -> [EngineOutput]? {
         guard var p = picker else { return nil }
         if p.expires <= now { picker = nil; return nil }
@@ -409,11 +472,31 @@ public final class Engine {
             let moved = next != p.index
             p.index = next
             p.expires = now + Engine.pickerTimeout
+            if let wait = config.pickers[p.id]?.commitAfter, p.commitAt != nil { p.commitAt = now + wait }
             picker = p
             return moved ? [soundOnly("scroll"), .redraw] : [.redraw]
         case .down(let c) where c != "pause":
-            // a hold-through key (● Talk for dictation) works normally while a list is open
-            if let (b, _) = resolve(c, ctx, snap), b.passthrough != nil { return nil }
+            // a hold-through key (● Talk) works normally while a list is open — and first turns a plain list into
+            // a search (search row shown and focused), so what you say filters the list instead of landing in the
+            // app behind it
+            if let (b, _) = resolve(c, ctx, snap), b.passthrough != nil {
+                guard !p.searching else { return nil }
+                p.all = p.items.filter { $0.value != Engine.pickerCancel }
+                p.searching = true
+                p.commitAt = nil                    // the window list: no jumping while you talk
+                picker = p
+                _ = filterPicker("", now: now)
+                return [.search, .redraw] + down(c, now: now, ctx: ctx, snap: snap)
+            }
+            if config.layers[Engine.listLayer] != nil, c != "search" {
+                presses[c] = Press(binding: nil, layer: nil, down: now, fired: true, role: nil)
+                if c == "left" || c == "right" { return pickerInput(.turn(c, c == "left" ? -1 : 1), now: now, ctx: ctx, snap: snap) }
+                switch resolve(c, ctx, snap)?.0.action {
+                case .decide(true)?: break                                          // green ✓: take it (below)
+                case .decide(false)?: picker = nil; return [soundOnly("cancel"), .redraw]   // red ✕
+                default: return []                                                  // a dark pad: nothing
+                }
+            }
             picker = nil
             presses[c] = Press(binding: nil, layer: nil, down: now, fired: true, role: nil)
             guard let def = config.pickers[p.id], let layer = config.layers[p.layer] ?? Optional(baseLayer(ctx)) else { return [.redraw] }
@@ -426,6 +509,10 @@ public final class Engine {
             var b = Binding.parseBare()
             b.label = "\(def.title): \(item.label)"
             b.sound = "select"
+            if def.confirm {
+                return askConfirm(PendingConfirm(action: item.action ?? def.run, binding: b, layer: layer, control: c,
+                                                 label: item.label, vars: extraVars), now: now)
+            }
             return fire(item.action ?? def.run, binding: b, layer: layer, control: c, now: now, ctx: ctx, snap: snap) + [.redraw]
         case .down("pause"):
             picker = nil
@@ -494,6 +581,8 @@ public final class Engine {
             if let s = binding.sound, !s.isEmpty { return [soundOnly(s)] }
             return []
         }
+        // a question's pad past its last option: grey, does nothing (no sound either)
+        if case .answer(let n) = action, n > (snap["q.count"].int ?? Int.max) { return [] }
         var out: [EngineOutput] = []
         let useTmux = (binding.target ?? (chain(layer).contains { $0.when?.usesTmux ?? false } ? .pane : .app)) == .pane
         let pane = useTmux ? ctx.focusedPane : nil
@@ -506,15 +595,17 @@ public final class Engine {
         if let top = stack.last, top.activation == .oneshot, top.trigger != control {
             stack.removeLast(); out.append(.redraw)
         }
-        // modal stack layers: activity extends them; exit controls count down their steps
-        if let i = stack.lastIndex(where: { $0.layer == layer.id && $0.activation == .modal }) {
-            if layer.cancel.contains(control) {
+        // modal stack layers: activity extends them; exit controls count down their steps — also when the press
+        // was answered by a layer above it (a menu's options read from the screen, on the pads)
+        if let i = stack.lastIndex(where: { $0.activation == .modal && ($0.layer == layer.id || layer.auto != nil) }),
+           let ml = config.layers[stack[i].layer] {
+            if ml.cancel.contains(control) {
                 stack.remove(at: i)
-            } else if layer.exit.contains(control) {
+            } else if ml.exit.contains(control) {
                 stack[i].remaining -= 1
                 if stack[i].remaining <= 0 { stack.remove(at: i) }
             } else {
-                stack[i].expires = now + (layer.timeout ?? 30)
+                stack[i].expires = now + (ml.timeout ?? 30)
             }
             out.append(.redraw)
         }
@@ -626,13 +717,58 @@ public final class Engine {
                 // "Cancel" sits above the list; the picker opens on the first real item
                 let all = [PickerItem(label: "✕ Cancel", value: Engine.pickerCancel)] + items
                 picker = PickerState(id: id, title: def.title, items: all, index: 1, expires: now + Engine.pickerTimeout, layer: layer.id)
+                // a knob-turned list that commits on rest (the window list): the turn that opened it already
+                // moves one on — to the window behind this one, like ⌘Tab
+                if let wait = def.commitAfter, control.hasPrefix("knob") {
+                    picker?.index = min(2, all.count - 1)
+                    picker?.commitAt = now + wait
+                }
             }
             out.append(.redraw)
         case .window(let dir): steps.append(.cycleWindow(next: dir == "next"))
+        case .focusWindow(let w): steps.append(.focusWindow(interpolate(w, v)))
+        case .pressButton(let names): steps.append(.pressButton(names))
+        case .app(let raw):
+            // "previous": the app in front before this one — a quick way back and forth
+            let name = raw == "previous" ? (ctx.previousApp?.bundleId ?? "") : interpolate(raw, v)
+            if name.isEmpty { steps.append(.toast("No previous app yet")) }
+            else if let r = ctx.running.first(where: { $0.matches(name) }), r.bundleId == ctx.app { steps.append(.cycleWindow(next: true)) }
+            else { steps.append(.openApp(ctx.running.first { $0.matches(name) }?.bundleId ?? name)) }
         case .input(let prompt, let then): out.append(.input(InputRequest(prompt: prompt, action: then, layer: layer.id)))
+        case .decide(let ok):
+            let pending = pendingConfirm
+            pendingConfirm = nil
+            stack.removeAll { $0.layer == Engine.confirmLayer }
+            out.append(.redraw)
+            guard let p = pending else { return }
+            if ok {
+                extraVars = p.vars
+                out += fire(p.action, binding: p.binding, layer: p.layer, control: p.control, now: now, ctx: ctx, snap: snap)
+                extraVars = [:]
+            } else {
+                out.append(soundOnly("cancel"))
+            }
+        case .answerRole(let role):
+            guard let p = pane else { steps.append(.toast("Answer needs a tmux pane")); return }
+            // the prompt's own option when it's on screen; otherwise Enter = the highlighted Yes, Esc = No
+            if role != "no", let n = snap["q.\(role)"].int, let key = snap["q.key.\(n)"].string {
+                steps.append(.tmuxKeys(pane: p.paneId, [KeyChord(modifiers: [], key: key)]))
+            } else if role != "always" {
+                steps.append(.tmuxKeys(pane: p.paneId, [KeyChord(modifiers: [], key: role == "no" ? "esc" : "enter")]))
+            }
         case .answer(let n):
             guard let p = pane else { steps.append(.toast("Answer needs a tmux pane")); return }
-            steps.append(.tmuxKeys(pane: p.paneId, [KeyChord(modifiers: [], key: String(n))]))
+            // read from the screen with the cursor known: move the cursor there and press Enter (works in any list,
+            // also ones without number keys); otherwise the key shown ("1", or "o" for Codex's Other)
+            if snap["q.screen"].truthy, snap["q.multi"].truthy == false, let cur = snap["q.selected"].int {
+                let d = n - cur
+                let arrow = KeyChord(modifiers: [], key: d > 0 ? "down" : "up")
+                steps.append(.tmuxKeys(pane: p.paneId, Array(repeating: arrow, count: abs(d)) + [KeyChord(modifiers: [], key: "enter")]))
+            } else {
+                let key = snap["q.key.\(n)"].string ?? String(n)
+                steps.append(.tmuxKeys(pane: p.paneId, [KeyChord(modifiers: [], key: key)]))
+            }
+            if Looks.isFree(n, snap) { steps.append(.wait(0.3)); out.append(.dictate) }
         case .legend(let how): out.append(.legend(how == "pin" ? .togglePin : .showHeld))
         case .seq(let items):
             for i in items { plan(i, into: &steps, out: &out, layer: layer, control: control, now: now, ctx: ctx, snap: snap, pane: pane) }
@@ -684,7 +820,8 @@ public final class Engine {
         guard let (b, l) = resolve(control, ctx, snap, shift: shift) else {
             return Appearance(label: "", color: nil, blink: false, bound: false, detail: "")
         }
-        let lookup = snap.lookup
+        let pendingLabel = pendingConfirm?.label
+        let lookup: (String) -> Value = { k in k == "confirm.label" ? .string(pendingLabel ?? "OK") : snap.lookup(k) }
         var label = b.label.map { interpolate($0, lookup) } ?? defaultLabel(b, layer: l)
         var color = config.settings.color(b.color) ?? config.settings.color("act")
         var blink = false
@@ -709,7 +846,34 @@ public final class Engine {
                 a.key = look.rules.first(where: { $0.condition?.eval(lookup).truthy ?? true })?.color ?? a.key
             } else if let k = Looks.builtinKey(name, binding: b, snapshot: snap) { a.key = k }
         }
-        if let w = b.params["win"]?.int { a.windowSlot = true; if snap["window"].int == w { a.selected = true } }
+        if case .app(let name) = b.action {
+            // app slots: dark = not running, dim = running, bright (outlined in the legend) = in front
+            if let r = name == "previous" ? ctx.previousApp : ctx.running.first(where: { $0.matches(name) }) {
+                if r.bundleId == ctx.app { a.selected = true } else { a.windowSlot = true }
+            } else { a.key = "off"; a.color = config.settings.color("off") }
+        }
+        if b.look == "choice", case .answer(let n)? = b.action, n > (snap["q.count"].int ?? 0) {
+            a.label = ""; a.detail = "no option here"        // a short question: the rest of rows 1–2 stays grey
+        }
+        if let w = b.params["win"]?.int {
+            a.windowSlot = true
+            if snap["window"].int == w { a.selected = true }
+            if b.look == "agent_status", let st = snap["win.\(w).agent.status"].string {
+                // several agents in the window: one line each ("Claude working" / "Codex asks"); colour = most urgent
+                // (two Claudes both working: "2 Claude working")
+                let all = (snap["win.\(w).agents"].string ?? "").split(separator: "|").map(String.init)
+                var lines: [(String, Int)] = []
+                for x in all {
+                    if let i = lines.firstIndex(where: { $0.0 == x }) { lines[i].1 += 1 } else { lines.append((x, 1)) }
+                }
+                a.note = all.count > 1
+                    ? lines.prefix(3).map { x, n in
+                        let p = x.split(separator: ":").map(String.init)
+                        return "\(n > 1 ? "\(n) " : "")\(p[0].capitalized) \(Looks.statusLabel(p.count > 1 ? p[1] : ""))"
+                    }.joined(separator: "\n")
+                    : Looks.statusLabel(st)
+            }
+        }
         return a
     }
 
@@ -743,7 +907,12 @@ public final class Engine {
             case .picker(let id): return "pick \(config.pickers[id]?.title ?? id)"
             case .search(let id): return "search \(config.pickers[id]?.title ?? id) (type or dictate)"
             case .answer(let n): return "answer option \(n)"
+            case .answerRole(let r): return r == "no" ? "decline (Esc)" : (r == "always" ? "yes, and don't ask again" : "yes")
+            case .decide(let ok): return ok ? "confirm" : "cancel"
             case .window(let d): return "\(d) window of this app"
+            case .pressButton(let n): return "press “\(n.joined(separator: "” / “"))”"
+            case .focusWindow(let w): return "go to \(w.split(separator: "\u{1F}").last ?? "")"
+            case .app(let n): return n == "previous" ? "back to the previous app" : "bring \(n) to the front (again: its next window)"
             case .input(let p, _): return "ask: \(p)"
             }
         }

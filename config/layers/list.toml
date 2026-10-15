@@ -1,0 +1,18 @@
+# On top while a list is open (Sites…, Prompts…, Skills…, New…, Close…, the window list…). Only the middle
+# four pads are lit: left red ✕ closes the list (pads 6, 10), right green ✓ takes the highlighted item
+# (pads 7, 11) — pad 10 red / pad 11 green are the same spots as Confirm. Every other pad is off.
+# Knobs and < > move, ▶ takes, ⏸ closes. ● Talk turns the list into a search (search row shown and focused)
+# and starts dictation: say what you want — a clear match is taken by itself, otherwise ✓ takes the top one.
+name      = "List"
+kind      = "modal"
+color     = "#4dabf7"
+exclusive = true
+
+pad6  = { label = "✕ Cancel", decide = "cancel", color = "danger" }
+pad7  = { label = "✓ Select", decide = "ok", color = "ok" }
+pad10 = { label = "✕ Cancel", decide = "cancel", color = "danger" }
+pad11 = { label = "✓ Select", decide = "ok", color = "ok" }
+left  = { label = "↑ Up",     color = "nav", desc = "move up the list" }
+right = { label = "↓ Down",   color = "nav", desc = "move down the list" }
+play  = { label = "✓ Select", decide = "ok", color = "ok" }
+pause = { label = "✕ Cancel", decide = "cancel", color = "danger" }

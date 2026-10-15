@@ -120,6 +120,23 @@ case "doctor":
         let c = try Config.load()
         check(true, "config loads (\(c.layers.count) layers, device \(c.device.name))")
         for w in c.warnings { out("  ! \(w)") }
+        // every key in the config can be typed on the current keyboard layout ("<", "?" … move between layouts)
+        func chords(_ a: Action?) -> [KeyChord] {
+            switch a {
+            case .keys(let k)?: return k
+            case .seq(let list)?: return list.flatMap { chords($0) }
+            case .input(_, let then)?: return chords(then)
+            default: return []
+            }
+        }
+        var unknown: [String] = []
+        for l in c.layers.values.sorted(by: { $0.id < $1.id }) {
+            for (name, b) in l.bindings.map({ ($0.key, $0.value) }) + l.shift.map({ ("shift.\($0.key)", $0.value) }) {
+                let all = ([b.action, b.hold, b.cw, b.ccw] + Array(b.with.values)).flatMap { chords($0) } + (b.passthrough.map { [$0] } ?? [])
+                for k in all where !Keyboard.isKnown(k) { unknown.append("\(l.id).\(name): \(k)") }
+            }
+        }
+        check(unknown.isEmpty, unknown.isEmpty ? "every key resolves on this keyboard layout" : "keys this layout can't type: " + unknown.joined(separator: ", "))
         check(!c.device.provisional, c.device.provisional ? "device profile is a provisional guess — run `padctl learn`" : "device profile learned")
     } catch { check(false, "config: \(error)") }
     check(Tmux.available, "tmux found")
@@ -180,6 +197,7 @@ case "items":
     let cfg: Config
     do { cfg = try Config.load() } catch { fail("\(error)") }
     guard let def = cfg.pickers[args[1]] else { fail("no picker '\(args[1])' — known: \(cfg.pickers.keys.sorted().joined(separator: ", "))") }
+    PickerDef.providers["windows"] = { WindowList.items() }
     let items = def.resolveItems(config: cfg)
     if args.count > 2 {
         let q = args.dropFirst(2).joined(separator: " ")

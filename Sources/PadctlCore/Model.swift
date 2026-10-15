@@ -61,11 +61,16 @@ public indirect enum Action: Equatable {
     case picker(String)             // open a picker (knob scrolls, ▶ commits, ⏸ cancels)
     case search(String)             // open a picker with a search box: type or dictate (hold ●) to filter
     case answer(Int)                // pick option N of the agent's question
+    case answerRole(String)         // pick the "yes" / "always" / "no" option of a confirmation prompt
+    case decide(Bool)               // the confirm layer: run the action waiting for OK, or drop it
     case window(String)             // next | prev window of the frontmost app (Accessibility, layout-independent)
+    case app(String)                // bring an app to the front (launch it if needed); in front already: its next window
+    case focusWindow(String)        // one window of any app (the window list's items: "pid␟index␟title")
+    case pressButton([String])      // press the front app's button with one of these names (things without a shortcut)
     case input(String, Action)      // ask for text (dictate with ●), then run the action with {input}
 
     static let keysNames = ["keys", "text", "tmux", "exec", "open", "shortcut", "menu", "script", "prompt",
-                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input", "search"]
+                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input", "search", "decide", "app", "focus_window", "press"]
 
     /// Parse the single action key present in a binding table. Returns nil if none.
     public static func parse(_ t: [String: Value], ctx: String) throws -> Action? {
@@ -119,13 +124,23 @@ public indirect enum Action: Equatable {
                 throw ExprError("\(ctx): input needs run = { <action using {input}> }")
             }
             return .input(try str(), then)
+        case "app": return .app(try str())
+        case "focus_window": return .focusWindow(try str())
+        case "press":
+            // one name or a list of alternatives ("Turn On Camera" / "Turn Off Camera"): the first one found is pressed
+            guard let names = v.string.map({ [$0] }) ?? v.stringList, !names.isEmpty else { throw ExprError("\(ctx): press must be a button name or a list of names") }
+            return .pressButton(names)
         case "window":
             let s = try str()
             guard s == "next" || s == "prev" else { throw ExprError("\(ctx): window must be \"next\" or \"prev\"") }
             return .window(s)
         case "answer":
-            guard let n = v.int, n >= 1 else { throw ExprError("\(ctx): answer must be an option number") }
+            if let role = v.string, ["yes", "always", "no"].contains(role) { return .answerRole(role) }
+            guard let n = v.int, n >= 1 else { throw ExprError("\(ctx): answer must be an option number or yes/always/no") }
             return .answer(n)
+        case "decide":
+            guard let d = v.string, d == "ok" || d == "cancel" else { throw ExprError("\(ctx): decide must be \"ok\" or \"cancel\"") }
+            return .decide(d == "ok")
         case "legend":
             let s = try str()
             guard s == "show" || s == "pin" else { throw ExprError("\(ctx): legend must be \"show\" or \"pin\"") }
@@ -189,6 +204,7 @@ public struct Binding: Equatable {
     public var action: Action?
     public var hold: Action?             // when set, a short press runs `action`, a long press runs `hold`
     public var confirmHold: Bool         // action only runs after holding confirm_hold_ms
+    public var confirmAsk = false        // confirm = "ask": a green ✓ / red ✕ pair asks first
     public var passthrough: KeyChord?    // mirror press/release to this key
     public var cw: Action?
     public var ccw: Action?
@@ -236,7 +252,8 @@ public struct Binding: Equatable {
             guard t["win"] != nil else { throw ExprError("\(ctx): empty = { … } needs win = N") }
             b.whenEmpty = [try Binding.parse(e, ctx: "\(ctx).empty")]
         }
-        if let c = t["confirm"]?.string, c != "hold" { throw ExprError("\(ctx): confirm must be \"hold\" in phase 1") }
+        if let c = t["confirm"]?.string, c != "hold", c != "ask" { throw ExprError("\(ctx): confirm must be \"ask\" or \"hold\"") }
+        b.confirmAsk = t["confirm"]?.string == "ask"
         if let p = t["passthrough"]?.string { b.passthrough = try KeyChord.parse(p) }
         // knob shorthand: keys = { cw = "down", ccw = "up" }
         if let kt = t["keys"]?.table {
@@ -296,10 +313,11 @@ public struct Layer {
     public var cancel: [String] = []     // modal layers: controls that end it at once
     public var steps = 1
     public var timeout: Double?
+    public var exclusive = false         // modal: controls it doesn't bind do nothing (and stay dark)
 }
 
 extension Layer {
-    static let reservedKeys: Set<String> = ["name", "kind", "color", "extends", "priority", "when", "shift", "looks", "agent", "id", "auto", "exit", "steps", "timeout", "cancel"]
+    static let reservedKeys: Set<String> = ["name", "kind", "color", "extends", "priority", "when", "shift", "looks", "agent", "id", "auto", "exit", "steps", "timeout", "cancel", "exclusive"]
 
     public static func parse(_ t: [String: Value], id: String, dir: URL, file: String) throws -> Layer {
         func err(_ m: String) -> ConfigError { ConfigError(file: file, m) }
@@ -332,6 +350,7 @@ extension Layer {
         l.cancel = t["cancel"]?.stringList ?? []
         l.steps = t["steps"]?.int ?? 1
         l.timeout = t["timeout"].flatMap(parseDuration)
+        l.exclusive = t["exclusive"]?.bool ?? false
         return l
     }
 }
@@ -362,6 +381,7 @@ public struct Settings {
         "nav": "#0000ff", "act": "#ffff00", "new": "#00ff00", "skill": "#ff00ff", "danger": "#ff0000", "sys": "#00ffff",
         "ok": "#00ff00", "warn": "#ffff00", "voice": "#ff0000", "off": "#000000",
         "drum": "#000000",   // drums on empty window pads stay dark, so a dark pad still means "no window"
+        "choice": "#ffffff", "choice_voice": "#ff00ff",   // a question's options (the one under its cursor: ok)
         "unknown": "#0000ff", "idle": "#ffffff", "working": "#00ffff", "needs_approval": "#ff00ff",
         "needs_input": "#ffff00", "done_unread": "#00ff00", "error": "#ff0000", "compacting": "#00ffff",
         "mode_default": "#ffffff", "mode_acceptEdits": "#ffff00", "mode_plan": "#0000ff",
@@ -384,6 +404,7 @@ public struct Settings {
     public static let defaultColors = [
         "nav": "#4dabf7", "act": "#ffa94d", "skill": "#b197fc", "voice": "#ff6b6b", "ok": "#51cf66",
         "warn": "#fcc419", "danger": "#fa5252", "sys": "#66d9e8", "off": "#3a3a3a", "new": "#51cf66", "drum": "#868e96",
+        "choice": "#dee2e6", "choice_voice": "#b197fc",
         // agent statuses
         "unknown": "#4dabf7", "idle": "#dee2e6", "working": "#339af0", "needs_approval": "#ff922b",
         "needs_input": "#fcc419", "done_unread": "#51cf66", "error": "#fa5252", "compacting": "#9775fa",

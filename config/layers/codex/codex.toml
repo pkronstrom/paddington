@@ -17,11 +17,11 @@ pad15 = { label = "Prompts…", picker = "prompts", hold = { search = "prompts" 
 pad16 = { label = "Commands…",  picker = "codex-commands", color = "skill" }
 
 # ── knobs 7–8: settings (Codex's own /model menu) ─────────────
-knob7 = { label = "Model",     text = "/model\n", then = "menu-nav", color = "act", desc = "opens /model — keep turning to move, any pad selects" }
-knob8 = { label = "Reasoning", text = "/model\n", then = "menu-nav", color = "act", desc = "opens /model (model + reasoning) — turn to move, any pad selects" }
+knob7 = { label = "Model",     text = "/model\n", then = "menu-nav", then_steps = 2, color = "act", desc = "opens /model — keep turning to move, any pad selects" }
+knob8 = { label = "Reasoning", text = "/model\n", then = "menu-nav", then_steps = 2, color = "act", desc = "opens /model (model + reasoning) — turn to move, any pad selects" }
 
 [shift]
-pad13 = { label = "/new",     text = "/new\n", confirm = "hold", color = "danger" }
+pad13 = { label = "/new",     text = "/new\n", confirm = "ask", color = "danger" }
 pad14 = { label = "/status",  text = "/status\n", color = "sys" }
 pad15 = { label = "Approvals",  text = "/approvals\n", then = "menu-nav", color = "act", desc = "pick the approval mode — knob ↑↓, any pad selects" }
 pad16 = { label = "/mention", text = "/mention ", color = "act", desc = "attach a file — type or dictate the name" }

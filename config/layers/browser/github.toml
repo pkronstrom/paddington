@@ -1,0 +1,20 @@
+# GitHub in the browser (the tab's title mentions GitHub). Rows 1–2 are GitHub's own keyboard shortcuts;
+# the rest stays the browser's. They work when no text field has focus (Esc first if one does).
+
+name    = "GitHub"
+kind    = "base"
+extends = "browser"
+color   = "#868e96"
+when    = { app = ["org.mozilla.firefox", "com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "company.thebrowser.Browser"], window = "^GitHub( - |$)|· GitHub$" }
+
+# ── row 1: find ───────────────────────────────────────────────
+pad1 = { label = "Search",       keys = "/", color = "act", desc = "search (/)" }
+pad2 = { label = "Go to file",   keys = "t", color = "act", desc = "file finder in this repo (T)" }
+pad3 = { label = "Commands",     keys = "cmd+k", color = "skill", desc = "command palette (⌘K)" }
+pad4 = { label = "github.dev",   keys = ".", color = "sys", desc = "open this repo or PR in the web editor (.)" }
+
+# ── row 2: this repo ──────────────────────────────────────────
+pad5 = { label = "Code",          keys = "g c", color = "nav" }
+pad6 = { label = "Issues",        keys = "g i", color = "nav" }
+pad7 = { label = "Pull requests", keys = "g p", color = "nav" }
+pad8 = { label = "Actions",       keys = "g a", color = "nav" }

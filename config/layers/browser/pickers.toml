@@ -1,0 +1,28 @@
+# Browser lists. Items run the list's `run` with {item} = the item's value.
+
+[sites]
+title  = "Sites"
+# Pinned sites first, then the ones you visit most in Firefox (read from its history, read-only).
+# Tap Sites…: turn a knob, ▶ opens it in a new tab · hold (or press while holding ● Talk): search — type or say it.
+source = "firefox-top"
+run    = { seq = [ { keys = "cmd+t" }, { wait = 0.25 }, { text = "{item}\n" } ] }
+
+[[sites.items]]
+label = "ChatGPT"
+value = "https://chatgpt.com/"
+
+[[sites.items]]
+label = "Claude"
+value = "https://claude.ai/new"
+
+[[sites.items]]
+label = "GitHub"
+value = "https://github.com/"
+
+[[sites.items]]
+label = "YouTube"
+value = "https://www.youtube.com/"
+
+[[sites.items]]
+label = "Google Meet"
+value = "https://meet.google.com/"

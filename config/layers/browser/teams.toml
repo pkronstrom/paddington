@@ -1,0 +1,28 @@
+# Microsoft Teams in the browser (title contains "Microsoft Teams"). Same spots as meet.toml.
+# Hold to talk: Teams unmutes while ⌥Space is held.
+
+name    = "Teams"
+kind    = "base"
+extends = "browser"
+priority = 2     # a meeting tab wins over any other site rule
+color   = "#5c7cfa"
+when    = { app = ["org.mozilla.firefox", "com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "company.thebrowser.Browser"], window = "^Microsoft Teams|\\| Microsoft Teams$" }
+
+# ── row 1: you ────────────────────────────────────────────────
+pad1 = { label = "Mic",          keys = "cmd+shift+m", color = "sys", desc = "mute / unmute (⌘⇧M)" }
+pad2 = { label = "Camera",       keys = "cmd+shift+o", color = "sys", desc = "camera on / off (⌘⇧O)" }
+pad3 = { label = "Hand",         keys = "cmd+shift+k", color = "act", desc = "raise / lower your hand (⌘⇧K)" }
+pad4 = { label = "Hold to talk", passthrough = "alt+space", color = "ok", desc = "hold: ⌥Space — unmuted while held" }
+
+# ── row 2: the room ───────────────────────────────────────────
+pad5 = { label = "Share",      keys = "cmd+shift+e", color = "act", desc = "share screen (⌘⇧E)" }
+pad6 = { label = "Accept",     keys = "cmd+shift+s", color = "ok", desc = "accept an incoming call (audio, ⌘⇧S)" }
+pad7 = { label = "Decline",    keys = "cmd+shift+d", color = "danger", desc = "decline an incoming call (⌘⇧D)" }
+pad8 = { label = "Fullscreen", keys = "ctrl+cmd+f", color = "sys" }
+
+# ── row 3: Leave instead of Close tab ─────────────────────────
+pad12 = { label = "Leave", keys = "cmd+shift+h", confirm = "ask", color = "danger", desc = "hang up (⌘⇧H) — asks first: ✓ green / ✕ red" }
+
+[shift]
+# pads 1–4: the app slots (default.toml)
+pad8 = { label = "Shortcuts", keys = "cmd+period", color = "sys", desc = "Teams' shortcut list (⌘.)" }

@@ -1,0 +1,30 @@
+# Google Meet in the browser (the tab's title starts with "Meet - " or says "Google Meet").
+# Rows 1–2 become the meeting's controls; row 3 keeps the browser's, with Leave on the Close spot;
+# row 4, knobs and < > stay the browser's. Same spots as teams.toml.
+# Hold to talk needs Meet's own "Push to talk" setting (Settings › Audio) — then holding Space unmutes.
+
+name    = "Meet"
+kind    = "base"
+extends = "browser"
+priority = 2     # a meeting tab wins over any other site rule
+color   = "#51cf66"
+when    = { app = ["org.mozilla.firefox", "com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "company.thebrowser.Browser"], window = "^Meet [-–—] |^Google Meet" }
+
+# ── row 1: you ────────────────────────────────────────────────
+pad1 = { label = "Mic",          keys = "cmd+d", color = "sys", desc = "mute / unmute (⌘D)" }
+pad2 = { label = "Camera",       keys = "cmd+e", color = "sys", desc = "camera on / off (⌘E)" }
+pad3 = { label = "Hand",         keys = "ctrl+cmd+h", color = "act", desc = "raise / lower your hand (⌃⌘H)" }
+pad4 = { label = "Hold to talk", passthrough = "space", color = "ok", desc = "hold: Space — unmuted while held (turn on Push to talk in Meet's audio settings)" }
+
+# ── row 2: the room ───────────────────────────────────────────
+pad5 = { label = "Chat",       keys = "ctrl+cmd+c", color = "nav", desc = "meeting chat (⌃⌘C)" }
+pad6 = { label = "People",     keys = "ctrl+cmd+p", color = "nav", desc = "participants (⌃⌘P)" }
+pad7 = { label = "Captions",   keys = "c", color = "skill", desc = "captions on / off (C)" }
+pad8 = { label = "Fullscreen", keys = "ctrl+cmd+f", color = "sys" }
+
+# ── row 3: Leave instead of Close tab ─────────────────────────
+pad12 = { label = "Leave", keys = "cmd+w", confirm = "ask", color = "danger", desc = "close the meeting tab — asks first: ✓ green / ✕ red" }
+
+[shift]
+# pads 1–4: the app slots (default.toml)
+pad8 = { label = "Shortcuts", keys = "?", color = "sys", desc = "Meet's shortcut list (?)" }

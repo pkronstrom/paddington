@@ -22,7 +22,7 @@ knob7 = { label = "Model",    picker = "model", color = "act" }
 knob8 = { label = "Thinking", picker = "effort", color = "act" }
 
 [shift]
-pad13 = { label = "/clear",   text = "/clear\n", confirm = "hold", color = "danger" }
+pad13 = { label = "/clear",   text = "/clear\n", confirm = "ask", color = "danger" }
 pad14 = { label = "/resume",  text = "/resume\n", then = "menu-nav", color = "act" }
 pad15 = { label = "Mode",    mode = "next", look = "agent_mode", hold = { picker = "modes" }, desc = "tap: next mode · hold: pick a mode" }
 pad16 = { label = "/handoff", text = "/handoff\n", color = "skill" }

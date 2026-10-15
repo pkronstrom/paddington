@@ -20,7 +20,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var context = Context()
     var clientTTY: String?
     var lastRegularApp: NSRunningApplication?
+    var previousApp: RunningApp?
     var searchOpen = false     // the search box belongs to the open search picker
+    var screenChoices: ScreenChoices?   // a choice prompt on the focused agent's screen
     let dictation = DictationWatcher()
     let drums = DrumSidecar()
     var midiNote: Int?        // the note of the MIDI message being handled (nil for simulate/socket input)
@@ -72,7 +74,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
 
         reloadConfig(initial: true)
-        DispatchQueue.global(qos: .utility).async { _ = PickerDef.vaultSkills() }   // warm the skill-vault list
+        DispatchQueue.global(qos: .utility).async { _ = PickerDef.vaultSkills(); _ = PickerDef.firefoxTopSites() }   // warm the lists
+        PickerDef.providers["windows"] = { WindowList.items() }
         Log.write("start pid=\(getpid()) launchd=\(ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == Self.agentLabel)")
         migrateLoginItem()
         executor.onToast = { [weak self] in self?.legend.toast($0) }
@@ -185,6 +188,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         var c = Context()
         if let fake = fakeApp {
             c.app = fake; c.appName = fake
+            c.windowTitle = ProcessInfo.processInfo.environment["PADCTL_FAKE_TITLE"] ?? ""
         } else if let front = NSWorkspace.shared.frontmostApplication {
             // alerts, permission prompts and overlay helpers (accessory apps) don't count: keep the last regular app
             if front.activationPolicy == .regular || lastRegularApp?.isTerminated != false { lastRegularApp = front }
@@ -193,6 +197,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
             c.appName = app.localizedName ?? ""
             c.windowTitle = Self.focusedWindowTitle(pid: app.processIdentifier)
         }
+        c.running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.map {
+            RunningApp(bundleId: $0.bundleIdentifier ?? "", name: $0.localizedName ?? "",
+                       file: $0.bundleURL?.deletingPathExtension().lastPathComponent ?? "")
+        }
+        // the app in front before this one (app = "previous"), while it still runs
+        if !c.app.isEmpty, c.app != context.app, let old = context.running.first(where: { $0.bundleId == context.app }) { previousApp = old }
+        c.previousApp = c.running.first { $0.bundleId == previousApp?.bundleId && $0.bundleId != c.app }
         // a failing tmux call (busy machine, timeout) keeps the last good pane list for 10 s instead of falling to Default
         do {
             c.panes = Tmux.available ? try Tmux.panesOrError() : []
@@ -213,6 +224,16 @@ public final class AppController: NSObject, NSApplicationDelegate {
             c.focusedPane = nil
         }
         if let p = c.focusedPane { agents.visit(pane: p.paneId, now: now) }
+        // a choice prompt on the focused agent's screen (questions, permission menus — Claude and Codex)
+        if let p = c.focusedPane, Snapshot.agentCommands.contains(p.command), !testMode {
+            let r = Tmux.run(["capture-pane", "-p", "-t", p.paneId])
+            let found = r.ok ? ScreenChoices.parse(r.out) : nil
+            if found != screenChoices {
+                if let f = found { Log.write("choices on screen in \(p.paneId): \(f.options.map { "\($0.key). \($0.label)" }.joined(separator: " | "))") }
+                screenChoices = found
+                render()
+            }
+        } else if screenChoices != nil { screenChoices = nil }
         let changed = c != context
         context = c
         if changed, let e = engine {
@@ -278,7 +299,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
     }
 
     func snapshot() -> Snapshot {
-        Snapshot.build(context: context, agents: agents, custom: custom, layerPath: engine?.layerPath(context, now: now) ?? "")
+        var s = Snapshot.build(context: context, agents: agents, custom: custom, layerPath: engine?.layerPath(context, now: now) ?? "")
+        // what's on screen wins over the hook payload: it has Claude's own extra options ("Type something") too
+        if let sc = screenChoices { for (k, v) in sc.vars { s.values[k] = v } }
+        return s
     }
 
     // MARK: input
@@ -412,6 +436,19 @@ public final class AppController: NSObject, NSApplicationDelegate {
         return false
     }
 
+    /// Hands-free dictation for a free-form answer: after the option is picked, tap the talk key (VoiceInk starts);
+    /// ● again pastes, ▶ pastes and sends.
+    func startDictation() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            guard let self else { return }
+            let talkKey = (try? KeyChord.parse("rightcmd")) ?? KeyChord(modifiers: [], key: "rightcmd")
+            try? Keyboard.down(talkKey); usleep(40_000); try? Keyboard.up(talkKey)
+            self.talkLatched = true
+            Log.write("talk: free-form answer — dictation started (● pastes, ▶ pastes and sends)")
+            self.legend.toast("🎤 Speak — ● to paste · ▶ to paste and send")
+        }
+    }
+
     func stopTalkThenEnter(tapToStop: Bool) {
         let before = DictationWatcher.latestTranscript()?.id ?? 0
         let talkKey = (try? KeyChord.parse("rightcmd")) ?? KeyChord(modifiers: [], key: "rightcmd")
@@ -447,6 +484,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 if !p.steps.isEmpty { executor.run(p) }
             case .legend(let cmd): legend.apply(cmd)
             case .search: openSearch()
+            case .dictate: startDictation()
             case .input(let r):
                 if testMode { break }
                 if let s = config?.settings { sounds.play("picker", settings: s) }
@@ -488,6 +526,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
         var controls: [String: Appearance] = [:]
         for c in cfg.device.allControlNames { controls[c] = e.appearance(c, ctx: context, snap: snap) }
         if controls != m.controls { m.controls = controls }
+        // colour key: the statuses on window pads now, in a fixed order
+        let notes = controls.values.filter { $0.windowSlot && !$0.note.isEmpty }.map(\.note)
+        let key = Looks.statusWords.filter { w in notes.contains { $0 == w.1 || $0.contains(" \(w.1)") } }
+            .map { StatusKeyItem(label: $0.1, hex: cfg.settings.ledColors[$0.0] ?? "#888888") }
+        if key != m.statusKey { m.statusKey = key }
         var lights: [String: LegendLight] = [:]
         for (name, a) in controls { if let l = Self.light(a, cfg.settings) { lights[name] = LegendLight(hex: l.hex, level: l.level) } }
         if lights != m.lights { m.lights = lights }
@@ -498,12 +541,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let modal = stack.last?.kind == .modal
         m.frameStyle = modal ? .modal : (e.shiftHeld ? .held : (stack.count > 1 ? .temporary : .base))
         legend.showPicker(e.picker)
-        // menus you open (Rewind, /resume…) show the legend; layers that switch on by themselves when an agent
-        // waits (Answer, Permit) don't — the blinking window pad already says so
-        let opened = modal && stack.last.map { top in e.stack.contains { $0.layer == top.id } } == true
-        let wasForced = legend.forced
-        legend.forced = opened
-        if wasForced != opened { legend.update() }
+        // menus, questions and confirmations don't pop the legend up: the pads light and label themselves
+        // (hold ▶ to see it)
+        if legend.forced { legend.forced = false; legend.update() }
         let connected = padSourcePresent
         m.connected = connected
         var conn = connected ? cfg.device.name : (ble?.status ?? "not connected")

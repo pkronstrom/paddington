@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 public struct PickerItem: Equatable {
     public var label: String
@@ -15,11 +16,15 @@ public struct PickerDef {
     public var id: String
     public var title: String
     public var items: [PickerItem]
-    public var sources: [String]        // "claude-skills" | "skill-vault" | "mcp-vault" | "prompts" | "dirs" (one or a list)
+    public var sources: [String]        // "claude-skills" | "skill-vault" | "mcp-vault" | "prompts" | "dirs" | "firefox-top" (one or a list)
     public var path: String?            // folder for source = "dirs"
     public var pin: [String]
     public var run: Action
     public var dir: URL                 // ruleset folder (prompts source)
+    public var confirm = false          // ask ✓ / ✕ before running the chosen item
+    public var commitAfter: Double?     // knob lists: take the highlighted item once the knob rests this long
+    /// Sources the app provides (they need macOS APIs): "windows" → every app's windows.
+    nonisolated(unsafe) public static var providers: [String: () -> [PickerItem]] = [:]
 
     public static func parse(_ id: String, _ v: Value, dir: URL, file: String) throws -> PickerDef {
         guard let t = v.table else { throw ConfigError(file: file, "[\(id)] must be a table") }
@@ -42,8 +47,11 @@ public struct PickerDef {
             throw ConfigError(file: file, "[\(id)] needs run = { <action> } or a run on every item")
         }
         let sources = t["source"].map { $0.string.map { [$0] } ?? $0.stringList ?? [] } ?? []
-        return PickerDef(id: id, title: t["title"]?.string ?? id.capitalized, items: items, sources: sources, path: t["path"]?.string,
-                         pin: t["pin"]?.stringList ?? [], run: run, dir: dir)
+        var def = PickerDef(id: id, title: t["title"]?.string ?? id.capitalized, items: items, sources: sources, path: t["path"]?.string,
+                            pin: t["pin"]?.stringList ?? [], run: run, dir: dir)
+        def.confirm = t["confirm"]?.bool ?? false
+        def.commitAfter = t["commit_after"].flatMap(parseDuration)
+        return def
     }
 
     /// Items to show now: static items, or a scanned source with pinned entries first.
@@ -94,6 +102,10 @@ public struct PickerDef {
                     if !list.contains(where: { $0.value == name }) { list.append(PickerItem(label: label, value: name, detail: detail)) }
                 }
             }
+        case "firefox-top":
+            // the sites you visit most (Firefox's own ranking); pinned items with the same host come first
+            let hosts = Set(list.compactMap { Self.host($0.value) })
+            list += Self.firefoxTopSites().filter { !hosts.contains(Self.host($0.value) ?? "") }
         case "dirs":
             let raw = (path ?? "~").replacingOccurrences(of: "{home}", with: NSHomeDirectory())
             let base = URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
@@ -101,7 +113,8 @@ public struct PickerDef {
                 .filter { !$0.lastPathComponent.hasPrefix(".") && ((try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false) }
                 .sorted { $0.lastPathComponent.lowercased() < $1.lastPathComponent.lowercased() }
             list += subs.map { PickerItem(label: $0.lastPathComponent, value: $0.path) }
-        default: break
+        default:
+            if let provide = Self.providers[source] { list += provide() }
         }
         }
         if !pin.isEmpty {
@@ -122,6 +135,7 @@ public struct PickerState: Equatable {
     public var all: [PickerItem] = []   // every item (search pickers)
     public var query = ""
     public var searching = false
+    public var commitAt: Double?        // commit_after lists: when the highlighted item is taken
 }
 
 // MARK: vaults and front matter
@@ -149,6 +163,51 @@ extension PickerDef {
         }
         vaultCache = (Date(), items)
         return items
+    }
+
+    private static let sitesLock = NSLock()
+    nonisolated(unsafe) private static var sitesCache: (at: Date, items: [PickerItem])?
+
+    /// Firefox's most visited sites (its frecency ranking), from the newest profile's history — read-only, never
+    /// locked (immutable snapshot, so the last minutes may be missing). Label = host, detail = its top page's title.
+    public static func firefoxTopSites(limit: Int = 25, maxAge: TimeInterval = 600) -> [PickerItem] {
+        sitesLock.lock(); defer { sitesLock.unlock() }
+        if let c = sitesCache, Date().timeIntervalSince(c.at) < maxAge { return c.items }
+        let profiles = NSHomeDirectory() + "/Library/Application Support/Firefox/Profiles"
+        let dbs = ((try? FileManager.default.contentsOfDirectory(atPath: profiles)) ?? []).map { "\(profiles)/\($0)/places.sqlite" }
+        func mtime(_ p: String) -> Date { ((try? FileManager.default.attributesOfItem(atPath: p))?[.modificationDate] as? Date) ?? .distantPast }
+        guard let path = dbs.filter({ FileManager.default.fileExists(atPath: $0) }).max(by: { mtime($0) < mtime($1) }) else { return [] }
+        var db: OpaquePointer?
+        let uri = "file:" + (path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path) + "?immutable=1"
+        guard sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK else { sqlite3_close(db); return [] }
+        defer { sqlite3_close(db) }
+        let sql = """
+            select o.prefix || o.host, o.host,
+                   (select p.title from moz_places p where p.origin_id = o.id and p.title is not null and p.title != ''
+                    order by p.frecency desc limit 1)
+            from moz_origins o where o.frecency > 0 and o.prefix in ('https://', 'http://')
+            order by o.frecency desc limit 80
+            """
+        var st: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(st) }
+        var items: [PickerItem] = [], seen = Set<String>()
+        while sqlite3_step(st) == SQLITE_ROW, items.count < limit {
+            func col(_ i: Int32) -> String { sqlite3_column_text(st, i).map { String(cString: $0) } ?? "" }
+            var h = col(1)
+            if h.hasPrefix("www.") { h.removeFirst(4) }
+            guard !h.isEmpty, h != "localhost", !h.allSatisfy({ $0.isNumber || $0 == "." || $0 == ":" }), seen.insert(h).inserted else { continue }
+            items.append(PickerItem(label: h, value: col(0), detail: col(2)))
+        }
+        sitesCache = (Date(), items)
+        return items
+    }
+
+    /// "https://www.github.com/x" → "github.com"
+    static func host(_ s: String) -> String? {
+        guard var h = URL(string: s)?.host?.lowercased() else { return nil }
+        if h.hasPrefix("www.") { h.removeFirst(4) }
+        return h
     }
 
     /// A vault's folder: its tool records it in ~/.config/<name>/config.

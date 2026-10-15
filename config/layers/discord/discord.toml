@@ -1,0 +1,35 @@
+# Discord (the desktop app). Rows 1–2: your voice and getting around; rows 3–4 are the default ruleset's,
+# with Leave call on the Close spot. Mute and deafen are Discord's own shortcuts; camera, screen share and
+# leave have none, so they press Discord's buttons (works while you're in a voice channel or call).
+
+name    = "Discord"
+kind    = "base"
+extends = "default"
+color   = "#5865f2"
+when    = { app = ["com.hnc.Discord"] }
+
+# < : the iTerm window (default.toml)
+right = { label = "Unread ↓", keys = "alt+shift+down", color = "nav", desc = "next unread channel (⌥⇧↓)" }
+
+# ── row 1: you ────────────────────────────────────────────────
+pad1 = { label = "Mute",         keys = "cmd+shift+m", color = "sys", desc = "mute / unmute your mic (⌘⇧M)" }
+pad2 = { label = "Deafen",       keys = "cmd+shift+d", color = "act", desc = "deafen / undeafen (⌘⇧D) — deafening also mutes you" }
+pad3 = { label = "Camera",       press = ["Turn On Camera", "Turn Off Camera"], color = "sys", desc = "camera on / off (presses Discord's camera button)" }
+pad4 = { label = "Share screen", press = ["Share Your Screen", "Stop Streaming"], color = "act", desc = "start / stop sharing your screen" }
+
+# ── row 2: calls and getting around ───────────────────────────
+pad5 = { label = "Answer",       keys = "cmd+enter", color = "ok", desc = "answer an incoming call (⌘↩) — ⏸ declines" }
+pad6 = { label = "Find…",        keys = "cmd+k", color = "skill", desc = "quick switcher: type or dictate a server, channel or person (⌘K)" }
+pad7 = { label = "Next mention", keys = "ctrl+alt+shift+down", color = "nav", desc = "next channel with an unread mention" }
+pad8 = { label = "Upload",       keys = "cmd+shift+u", color = "act" }
+
+# ── row 3: Leave call on the Close spot ───────────────────────
+pad12 = { label = "Leave call", press = ["Disconnect"], confirm = "ask", color = "danger", desc = "disconnect from voice — asks first: ✓ green / ✕ red" }
+
+# ── knobs: channels and servers ───────────────────────────────
+knob3 = { label = "Channels", step = 3, keys = { cw = "alt+down", ccw = "alt+up" }, color = "nav", sound = "nav" }
+knob4 = { label = "Servers",  step = 3, keys = { cw = "ctrl+alt+down", ccw = "ctrl+alt+up" }, color = "nav", sound = "nav" }
+
+[shift]
+# pads 1–4: the app slots (default.toml)
+pad7 = { label = "Server read", keys = "shift+esc", color = "nav", desc = "mark the whole server read (⇧Esc)" }

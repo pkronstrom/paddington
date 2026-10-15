@@ -21,7 +21,22 @@ public struct Context: Equatable {
     public var windowTitle: String = ""
     public var focusedPane: PaneInfo?       // tmux pane shown in the focused terminal, if known
     public var panes: [PaneInfo] = []       // all panes on the tmux server
+    public var running: [RunningApp] = []    // apps with a Dock icon (app = "…" bindings light up by these)
+    public var previousApp: RunningApp?      // the app that was in front before this one
     public init() {}
+}
+
+/// A running app, as `app = "…"` bindings name it: bundle id, display name or bundle file name, any case
+/// ("org.mozilla.firefox", "Firefox"; iTerm is "iTerm2" on screen but "iTerm.app" on disk — both match).
+public struct RunningApp: Equatable {
+    public var bundleId: String
+    public var name: String
+    public var file: String
+    public init(bundleId: String, name: String, file: String) { self.bundleId = bundleId; self.name = name; self.file = file }
+    public func matches(_ s: String) -> Bool {
+        let q = s.lowercased()
+        return !q.isEmpty && [bundleId, name, file].contains { $0.lowercased() == q }
+    }
 }
 
 public enum AgentStatus: String, CaseIterable {
@@ -212,6 +227,7 @@ public struct Snapshot {
         var v = custom
         v["app"] = .string(context.app)
         v["app.name"] = .string(context.appName)
+        v["app.previous"] = .string(context.previousApp?.name ?? "Previous app")
         v["layer"] = .string(layerPath)
         func status(of pane: PaneInfo) -> AgentStatus? {
             if let a = agents.agent(forPane: pane.paneId) { return a.status }
@@ -238,11 +254,15 @@ public struct Snapshot {
                     let opts = q["options"]?.array ?? []
                     v["q.count"] = .number(Double(opts.count))
                     for (i, o) in opts.enumerated() {
-                        v["q.option.\(i + 1)"] = o["label"] ?? o
+                        let label = o["label"] ?? o
+                        v["q.option.\(i + 1)"] = label
+                        v["q.label.\(i + 1)"] = .string("\(i + 1) · \(label.string ?? "")")
                     }
                 }
             }
+            var perWindow: [Int: [String]] = [:]       // every agent in a window: "claude:working", "codex:needs_input"
             for p in context.panes where p.session == f.session {
+                if let s = status(of: p) { perWindow[p.window, default: []].append("\(p.command):\(s.rawValue)") }
                 v["win.\(p.window).exists"] = .bool(true)
                 v["win.\(p.window).name"] = .string(p.windowName)
                 if let s = status(of: p) {
@@ -252,6 +272,7 @@ public struct Snapshot {
                 }
                 if p.window == f.window { v["win.\(p.window).current"] = .bool(true) }
             }
+            for (w, list) in perWindow { v["win.\(w).agents"] = .string(list.joined(separator: "|")) }
         }
         if let u = agents.usage5h { v["usage.5h"] = .number(u) }
         if let u = agents.usage7d { v["usage.7d"] = .number(u) }

@@ -1,35 +1,39 @@
 # Menu navigation: entered after a binding with then = "menu-nav" (e.g. Rewind, /model).
-# padctl can't see the menu — read it in the terminal. Knobs move, any pad or ▶ selects, ⏸ backs out.
+# Like lists: only the middle four pads are lit — left red ✕ backs out (Esc, pads 6, 10), right green ✓ selects
+# (Enter, pads 7, 11); other pads are off. Knobs and < > move. When padctl can read the menu's numbered options
+# on screen, pads 1–8 show them instead (layers/choices.toml) and pick one; pads 10 / 11 stay red / green.
 name    = "Menu"
 kind    = "modal"
 color   = "#ffd43b"
 timeout = "30s"
-exit    = ["play", "left", "right", "pad1", "pad2", "pad3", "pad4", "pad5", "pad6", "pad7", "pad8",
-           "pad9", "pad10", "pad11", "pad12", "pad13", "pad14", "pad15", "pad16"]   # select: counts then_steps
-cancel  = ["pause"]                # ⏸ leaves at once
+exit    = ["play", "pad7", "pad11", "pad1", "pad2", "pad3", "pad4", "pad5", "pad8"]   # select: counts then_steps
+cancel  = ["pause", "pad6", "pad10"]                                                 # leaves at once
 
 knob1 = { label = "↑ ↓",  keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav", sound = "scroll" }
 knob2 = { label = "Page", keys = { cw = "pagedown", ccw = "pageup" }, to = "pane", color = "nav", sound = "scroll" }
 knob4 = { label = "← →",  keys = { cw = "right", ccw = "left" }, to = "pane", color = "nav", sound = "scroll" }
 knob7 = { label = "↑ ↓",  keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav", sound = "scroll" }
 knob8 = { label = "↑ ↓",  keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav", sound = "scroll" }
-play  = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pause = { label = "Back",   keys = "esc", to = "pane", color = "warn", sound = "cancel" }
-left  = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-right = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad1 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad2 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad3 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad4 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad5 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad6 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad7 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad8 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad9 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad10 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad11 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad12 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad13 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad14 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad15 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
-pad16 = { label = "Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+play  = { label = "✓ Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+pause = { label = "✕ Back",   keys = "esc", to = "pane", color = "danger", sound = "cancel" }
+left  = { label = "↑ Up",     keys = "up", to = "pane", color = "nav", sound = "scroll" }
+right = { label = "↓ Down",   keys = "down", to = "pane", color = "nav", sound = "scroll" }
+
+pad6  = { label = "✕ Back",   keys = "esc", to = "pane", if = "not q.active", color = "danger", sound = "cancel" }
+pad7  = { label = "✓ Select", keys = "enter", to = "pane", if = "not q.active", color = "ok", sound = "select" }
+pad10 = { label = "✕ Back",   keys = "esc", to = "pane", color = "danger", sound = "cancel" }
+pad11 = { label = "✓ Select", keys = "enter", to = "pane", color = "ok", sound = "select" }
+
+# off: the rest — pads 1–8 unless the menu's options are readable (then the Choose layer below shows them)
+pad1  = { if = "not q.active", color = "off" }
+pad2  = { if = "not q.active", color = "off" }
+pad3  = { if = "not q.active", color = "off" }
+pad4  = { if = "not q.active", color = "off" }
+pad5  = { if = "not q.active", color = "off" }
+pad8  = { if = "not q.active", color = "off" }
+pad9  = { color = "off" }
+pad12 = { color = "off" }
+pad13 = { color = "off" }
+pad14 = { color = "off" }
+pad15 = { color = "off" }
+pad16 = { color = "off" }

@@ -4,7 +4,7 @@
 #   knobs  row 1 (1, 2)  move inside: ↑↓ · ←→          row 2 (3, 4)  switch: windows/tabs · panes/app windows
 #          row 3 (5, 6)  view: scroll · zoom          row 4 (7, 8)  settings: model · thinking (agents)
 #   pads   rows 1–2 (1–8) slots / targets   row 3 (9–12) lifecycle: new … close   row 4 (13–16) this app's verbs
-#   buttons  < > prev/next window or tab · ▶ Enter (hold: legend) · ⏸ Esc · ● Talk
+#   buttons  < iTerm window (show/hide, every app) · > next window or tab · ▶ Enter (hold: legend) · ⏸ Esc · ● Talk
 #   PAD BANK B = the pads' [shift] bindings · KNOB BANK B = the knobs' [shift] bindings (system knobs, set here)
 #
 # Binding = one action plus optional extras:
@@ -21,7 +21,9 @@ kind  = "base"
 color = "#868e96"
 
 # ── buttons ───────────────────────────────────────────────────
-left  = { label = "Prev tab", keys = "ctrl+shift+tab", color = "nav" }
+# < is the same everywhere: iTerm's hotkey window (⌃<, set in iTerm › Settings › Keys › Hotkey). Rulesets don't
+# override it; previous window/tab is on knob 3 (lists and menus still use < > to move).
+left  = { label = "iTerm", keys = "ctrl+<", to = "app", color = "sys", desc = "show / hide the iTerm hotkey window (⌃<)" }
 right = { label = "Next tab", keys = "ctrl+tab", color = "nav" }
 play  = { label = "Enter",    keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
 pause = { label = "Esc",      keys = "esc", color = "warn", desc = "Esc on press" }
@@ -60,15 +62,17 @@ knob7 = { label = "Undo / Redo", keys = { cw = "cmd+shift+z", ccw = "cmd+z" }, c
 
 # ── shift: PAD BANK B (pads) and KNOB BANK B (knobs) ──────────
 [shift]
-# rows 1–2: apps
-pad1  = { label = "iTerm",    open = "iTerm", color = "nav" }
-pad2  = { label = "Chrome",   open = "Google Chrome", color = "nav" }
-pad3  = { label = "Firefox",  open = "Firefox", color = "nav" }
-pad4  = { label = "Discord",  open = "Discord", color = "nav" }
-pad5  = { label = "Cursor",   open = "Cursor", color = "nav" }
-pad6  = { label = "VS Code",  open = "Visual Studio Code", color = "nav" }
-pad7  = { label = "Obsidian", open = "Obsidian", color = "nav" }
-pad8  = { label = "Safari",   open = "Safari", color = "nav" }
+# rows 1–2: apps. Row 1 is the same in every ruleset (they leave bank-B pads 1–4 alone), row 2 only here.
+# Dark = not running · dim = running · bright = in front. Tap: bring it to the front (launch it if needed);
+# tap the app that's already in front: its next window.
+pad1  = { label = "iTerm",    app = "iTerm", color = "nav" }
+pad2  = { label = "Firefox",  app = "Firefox", color = "nav" }
+pad3  = { label = "Obsidian", app = "Obsidian", color = "nav" }
+pad4  = { label = "↩ {app.previous}", app = "previous", color = "nav", desc = "back to the app you were in before (again: forth)" }
+pad5  = { label = "Chrome",   app = "Google Chrome", color = "nav" }
+pad6  = { label = "Discord",  app = "Discord", color = "nav" }
+pad7  = { label = "Cursor",   app = "Cursor", color = "nav" }
+pad8  = { label = "VS Code",  app = "Visual Studio Code", color = "nav" }
 # row 3: window tiling (macOS 15) … quit
 pad9  = { label = "◧ Left",   keys = "fn+ctrl+left", color = "act" }
 pad10 = { label = "Right ◨",  keys = "fn+ctrl+right", color = "act" }
@@ -82,4 +86,4 @@ pad16 = { label = "Activity Mon", open = "Activity Monitor", color = "sys" }
 # KNOB BANK B: system knobs everywhere (knobs not set here keep their normal action)
 knob1 = { label = "Volume",      cw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) + 4)"] }, ccw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) - 4)"] }, color = "sys" }
 knob3 = { label = "Desktops", step = 3,    keys = { cw = "ctrl+right", ccw = "ctrl+left" }, to = "app", color = "sys" }
-knob4 = { label = "App windows", step = 3, cw = { window = "next" }, ccw = { window = "prev" }, to = "app", color = "nav" }
+knob4 = { label = "All windows", picker = "windows", color = "nav", desc = "every app's windows in a list: turn to move, stop turning to go there (⏸ cancels)" }

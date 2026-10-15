@@ -8,7 +8,7 @@ color   = "#20c997"
 when    = { app = ["com.googlecode.iterm2"], tmux_cmd = ["*"] }
 
 # ── buttons ───────────────────────────────────────────────────
-left  = { label = "Prev window", tmux = ["previous-window", "-t", "{session}:"], color = "nav" }
+# < : the iTerm window (default.toml) — previous window is knob 3
 right = { label = "Next window", tmux = ["next-window", "-t", "{session}:"], color = "nav" }
 play  = { label = "Enter",       keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
 pause = { label = "Esc",         keys = "esc", color = "warn", desc = "Esc on press" }
@@ -30,7 +30,7 @@ pad8 = { label = "Win 8", tmux = ["select-window", "-t", "{session}:8"], look = 
 # pad11 New: see the [pad11] table at the end. (Waiting agents: their window pads blink.)
 pad9  = { label = "New…", picker = "new-session", color = "new", desc = "Codex, Claude + Codex, worktrees, projects…" }
 pad10 = { label = "Zoom", tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act", desc = "the current pane fills the window; again to restore" }
-pad12 = { label = "Close…", picker = "close", confirm = "hold", color = "danger", desc = "hold 1 s: choose — close window · workmux close · merge · remove worktree" }
+pad12 = { label = "Close…", picker = "close", color = "danger", desc = "choose how to close — window · workmux close · merge · remove worktree — then ✓ green / ✕ red" }
 
 # ── row 4: tmux verbs (agents replace these) ──────────────────
 pad13 = { label = "Last window", tmux = ["last-window", "-t", "{session}:"], color = "nav" }
@@ -64,10 +64,7 @@ tmux = ["select-pane", "-t", "{session}:", "-L"]
 
 # ── shift (PAD BANK B) ────────────────────────────────────────
 [shift]
-pad1  = { label = "Pane 1", tmux = ["select-pane", "-t", "{session}:.1"], color = "nav" }
-pad2  = { label = "Pane 2", tmux = ["select-pane", "-t", "{session}:.2"], color = "nav" }
-pad3  = { label = "Pane 3", tmux = ["select-pane", "-t", "{session}:.3"], color = "nav" }
-pad4  = { label = "Pane 4", tmux = ["select-pane", "-t", "{session}:.4"], color = "nav" }
+# pads 1–4: the app slots (default.toml) — panes are on knob 4
 pad5  = { label = "Win 9",  tmux = ["select-window", "-t", "{session}:9"], look = "agent_status", win = 9 }
 pad6  = { label = "Win 10", tmux = ["select-window", "-t", "{session}:10"], look = "agent_status", win = 10 }
 pad7  = { label = "Win 11", tmux = ["select-window", "-t", "{session}:11"], look = "agent_status", win = 11 }
@@ -75,7 +72,7 @@ pad8  = { label = "Win 12", tmux = ["select-window", "-t", "{session}:12"], look
 pad9  = { label = "Split →",   tmux = ["split-window", "-h", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
 pad10 = { label = "Split ↓",   tmux = ["split-window", "-v", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
 pad11 = { label = "Zoom",      tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act" }
-pad12 = { label = "Kill pane", tmux = ["kill-pane", "-t", "{pane}"], confirm = "hold", color = "danger" }
+pad12 = { label = "Kill pane", tmux = ["kill-pane", "-t", "{pane}"], confirm = "ask", color = "danger" }
 pad13 = { label = "Copy mode", tmux = ["copy-mode", "-t", "{pane}"], color = "act" }
 pad14 = { label = "Last pane", tmux = ["last-pane", "-t", "{session}:"], color = "nav" }
 pad15 = { label = "Rotate",    tmux = ["rotate-window", "-t", "{session}:"], color = "act" }

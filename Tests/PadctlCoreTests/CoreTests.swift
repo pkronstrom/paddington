@@ -43,6 +43,92 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     }
 }
 
+@Suite struct WindowStatusTests {
+    /// A window with Claude and Codex: one line per agent on its pad; the colour follows the most urgent.
+    @Test func severalAgentsInOneWindow() throws {
+        let e = Engine(config: try loadConfig())
+        var ctx = itermContext()
+        ctx.panes.append(PaneInfo(session: "main", window: 2, windowName: "w2", paneId: "%9", active: false, command: "codex", path: "/tmp/w2"))
+        let store = AgentStore()
+        store.handle(event: "SessionStart", payload: ["session_id": .string("c1")], pane: "%2", now: 0)
+        store.handle(event: "UserPromptSubmit", payload: ["session_id": .string("c1")], pane: "%2", now: 1)
+        store.handle(event: "SessionStart", payload: ["session_id": .string("x1")], pane: "%9", now: 0)
+        store.handle(event: "PermissionRequest", payload: ["session_id": .string("x1"), "tool_name": .string("Bash")], pane: "%9", now: 2)
+        let snap = Snapshot.build(context: ctx, agents: store, custom: [:], layerPath: "")
+        let a = e.appearance("pad2", ctx: ctx, snap: snap)
+        #expect(a.note == "Claude working\nCodex approve?")
+        #expect(a.key == "needs_approval" && a.blink)
+    }
+}
+
+@Suite struct ChoicesTests {
+    @Test func claudeAskUserQuestion() {
+        let screen = """
+        ⏺ Let me ask a few questions.
+
+        ────────────────────────────────────────────────
+         ☐ Layout  ☐ Colours  ✔ Submit  →
+
+        Which layout do you prefer?
+
+        ❯ 1. Compact
+             Smaller pads, more on screen
+          2. Large
+             Bigger pads
+          3. Type something.
+          4. Chat about this
+
+        Enter to select · ↑/↓ to navigate · Esc to cancel
+        """
+        let c = ScreenChoices.parse(screen)
+        #expect(c?.options.map(\.label) == ["Compact", "Large", "Type something.", "Chat about this"])
+        #expect(c?.selected == 0)
+        #expect(c?.title == "Which layout do you prefer?")
+        #expect(c?.vars["q.other"] == .number(3))                  // the first free-form option: dictate
+        #expect(c?.vars["q.label.1"] == .string("1 · Compact"))
+    }
+
+    @Test func claudePermissionAndCodexQuestion() {
+        let permission = """
+         Bash command
+           git push origin main
+         Do you want to proceed?
+         ❯ 1. Yes
+           2. Yes, and don't ask again for git push commands
+           3. No, and tell Claude what to do differently (esc)
+        """
+        let p = ScreenChoices.parse(permission)
+        #expect(p?.options.count == 3 && p?.options[2].freeForm == true && p?.title == "Do you want to proceed?")
+        #expect(p?.vars["q.confirm"] == .bool(true) && p?.vars["q.yes"] == .number(1) && p?.vars["q.always"] == .number(2) && p?.vars["q.no"] == .number(3))
+        #expect(ScreenChoices.parse("""
+        Which layout?
+        ❯ 1. Compact
+          2. Large
+        """)?.vars["q.confirm"] == nil)                          // a question, not a confirmation
+        let codex = """
+          Question 1/2: Which database should the prototype use?
+          › 1. Postgres (Recommended)
+            2. SQLite
+            o. Other (free-form)
+        """
+        let q = ScreenChoices.parse(codex)
+        #expect(q?.options.map(\.key) == ["1", "2", "o"])
+        #expect(q?.options.last?.freeForm == true)
+    }
+
+    @Test func plainListsDontCount() {
+        let reply = """
+        ⏺ Next steps:
+          1. Add the tests
+          2. Run them
+          3. Commit
+
+        › Ask Codex to do anything
+        """
+        #expect(ScreenChoices.parse(reply) == nil)                 // no cursor on an option
+    }
+}
+
 @Suite struct KnobStepTests {
     /// Window knob with step = 3: a fresh turn moves on its first unit, then every third; reversing moves at once.
     @Test func stepMakesKnobsLessSensitive() throws {
@@ -285,25 +371,97 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let ctx = itermContext()
         e.padBank = "B"
         #expect(e.baseLayer(ctx).id == "claude")
-        let p = plans(e.handle(.down("pad1"), now: 0.1, ctx: ctx, snap: Snapshot()))
-        #expect(p.first?.steps == [.tmux(["select-pane", "-t", "main:.1"])])
+        let p = plans(e.handle(.down("pad5"), now: 0.1, ctx: ctx, snap: Snapshot()))
+        #expect(p.first?.steps == [.tmux(["select-window", "-t", "main:9"])])
         #expect(!e.layerPath(ctx, now: 0).contains("Shift"))   // the bank lags, so the header doesn't claim it
         e.padBank = "A"
         #expect(!e.shiftActive)
     }
 
-    @Test func closeHoldOpensChoices() throws {
+    /// Close… → choose → confirm: pad 11 green ✓ runs it, pad 10 / the top row red ✕ drop it, other pads do nothing.
+    @Test func closeAsksGreenOrRed() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        #expect(plans(e.handle(.down("pad12"), now: 0, ctx: ctx, snap: Snapshot())).isEmpty)
-        let early = plans(e.handle(.up("pad12"), now: 0.3, ctx: ctx, snap: Snapshot()))
-        #expect(early.first?.steps == [.toast("Hold to confirm")])
-        _ = e.handle(.down("pad12"), now: 1, ctx: ctx, snap: Snapshot())
-        _ = e.tick(now: 2.1, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad12"), now: 0, ctx: ctx, snap: Snapshot())
         #expect(e.picker?.id == "close" && e.picker?.items[1].label == "Close window")
-        _ = e.handle(.up("pad12"), now: 2.2, ctx: ctx, snap: Snapshot())
-        let p = plans(e.handle(.down("play"), now: 2.5, ctx: ctx, snap: Snapshot()))
-        #expect(p.first?.steps == [.tmux(["kill-window", "-t", "main:2"])])
+        _ = e.handle(.up("pad12"), now: 0.1, ctx: ctx, snap: Snapshot())
+        // ▶ takes the highlighted "Close window" — nothing happens yet, the confirm layer asks
+        let asked = plans(e.handle(.down("play"), now: 0.5, ctx: ctx, snap: Snapshot()))
+        #expect(asked.first?.steps == [.toast("Close window? ✓ green · ✕ red")])
+        #expect(e.stack.last?.layer == "confirm")
+        #expect(e.appearance("pad11", ctx: ctx, snap: Snapshot()).label == "✓ Close window")
+        #expect(e.appearance("pad5", ctx: ctx, snap: Snapshot()).bound == false)        // other pads are off
+        #expect(plans(e.handle(.down("pad5"), now: 0.6, ctx: ctx, snap: Snapshot())).isEmpty)
+        #expect(e.appearance("pad16", ctx: ctx, snap: Snapshot()).label == "✕ Cancel")  // the whole top row is red too
+        // red (the top row): dropped
+        _ = e.handle(.down("pad16"), now: 0.7, ctx: ctx, snap: Snapshot())
+        #expect(e.stack.isEmpty && e.pendingConfirm == nil)
+        // again, green: runs
+        _ = e.handle(.down("pad12"), now: 1, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("pad12"), now: 1.1, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("play"), now: 1.2, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("play"), now: 1.25, ctx: ctx, snap: Snapshot())
+        let ran = plans(e.handle(.down("pad11"), now: 1.3, ctx: ctx, snap: Snapshot()))
+        #expect(ran.contains { $0.steps == [.tmux(["kill-window", "-t", "main:2"])] })
+        #expect(e.stack.isEmpty)
+        // unanswered: gives up after its timeout
+        _ = e.handle(.down("pad12"), now: 2, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("play"), now: 2.1, ctx: ctx, snap: Snapshot())
+        _ = e.tick(now: 11, ctx: ctx, snap: Snapshot())
+        #expect(e.pendingConfirm == nil && e.stack.isEmpty)
+    }
+
+    /// An agent's permission prompt on screen: pad 11 green Yes, pad 10 red No (Esc), pad 12 "always".
+    @Test func permissionPromptIsGreenAndRed() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        let screen = ScreenChoices.parse("""
+         Do you want to proceed?
+         ❯ 1. Yes
+           2. Yes, and don't ask again for git push commands
+           3. No, and tell Claude what to do differently (esc)
+        """)!
+        let snap = Snapshot(values: windowsSnap.values.merging(screen.vars) { $1 })
+        #expect(e.layerPath(ctx, now: 0, snap: snap).contains("Allow?"))
+        #expect(e.layerPath(ctx, now: 0, snap: snap).contains("Choose") == false)
+        #expect(plans(e.handle(.down("pad11"), now: 0, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("1")])])
+        #expect(plans(e.handle(.down("pad12"), now: 0.1, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("2")])])
+        #expect(plans(e.handle(.down("pad10"), now: 0.2, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
+        #expect(e.appearance("pad1", ctx: ctx, snap: snap).bound == false)          // window pads are off meanwhile
+    }
+
+    /// A question: only the option under the cursor is green and blinks; the rest white, free-form magenta;
+    /// the top row is red ✕ (Esc). Permission prompts get the same red row.
+    @Test func questionLightsOnePadAndARedRow() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        let screen = ScreenChoices.parse("""
+         Which store?
+           1. SQLite
+         ❯ 2. Redis
+           3. Type something.
+        """)!
+        let snap = Snapshot(values: windowsSnap.values.merging(screen.vars) { $1 })
+        let (p1, p2, p3) = (e.appearance("pad1", ctx: ctx, snap: snap), e.appearance("pad2", ctx: ctx, snap: snap),
+                            e.appearance("pad3", ctx: ctx, snap: snap))
+        #expect(p2.key == "ok" && p2.blink)
+        #expect(p1.key == "choice" && !p1.blink)
+        #expect(p3.key == "choice_voice" && !p3.blink)
+        for pad in ["pad13", "pad16"] {
+            let a = e.appearance(pad, ctx: ctx, snap: snap)
+            #expect(a.label == "✕ Cancel" && a.key == "danger" && !a.blink)
+        }
+        #expect(plans(e.handle(.down("pad14"), now: 0, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
+        #expect(e.appearance("pad11", ctx: ctx, snap: snap).label == "New")           // row 3 stays tmux
+
+        let permit = ScreenChoices.parse("""
+         Do you want to proceed?
+         ❯ 1. Yes
+           2. No, and tell Claude what to do differently (esc)
+        """)!
+        let snap2 = Snapshot(values: windowsSnap.values.merging(permit.vars) { $1 })
+        #expect(e.appearance("pad15", ctx: ctx, snap: snap2).label == "✕ No")
+        #expect(plans(e.handle(.down("pad15"), now: 1, ctx: ctx, snap: snap2)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
     }
 
     @Test func newTapSplitsHoldOpensPicker() throws {
@@ -466,24 +624,86 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(e.stack.isEmpty)
     }
 
-    @Test func anyPadSelectsInMenuNav() throws {
+    /// Claude's question as it really looks: 4 options, then "Type something." and "Chat about this" — both magenta
+    /// (answered in words), pads 7–8 grey and silent instead of the windows / drums underneath.
+    @Test func shortQuestionLeavesTheRestGrey() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        let screen = ScreenChoices.parse("""
+         Where should the toggle go?
+         ❯ 1. The < button (Recommended)
+           2. Long-press <
+           3. Bank-B pad 1 (iTerm slot)
+           4. Pad 9 in every layer
+           5. Type something.
+           6. Chat about this
+        """)!
+        let snap = Snapshot(values: windowsSnap.values.merging(screen.vars) { $1 })
+        let a = (1...8).map { e.appearance("pad\($0)", ctx: ctx, snap: snap) }
+        #expect(a[0].key == "ok" && a[1].key == "choice" && a[3].key == "choice")
+        #expect(a[4].key == "choice_voice" && a[5].key == "choice_voice")
+        #expect(a[6].key == "off" && a[6].label == "" && a[7].key == "off")
+        #expect(plans(e.handle(.down("pad7"), now: 0, ctx: ctx, snap: snap)).isEmpty)
+        // "Chat about this" picks it and starts dictation, like "Type something"
+        #expect(e.handle(.down("pad6"), now: 1, ctx: ctx, snap: snap).contains(.dictate))
+    }
+
+    /// ● in an open list turns it into a search (and still starts dictation): what you say filters the list.
+    @Test func talkInAListSearchesIt() throws {
+        let e = Engine(config: try loadConfig())
+        var ctx = Context(); ctx.app = "org.mozilla.firefox"
+        _ = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())          // Sites…
+        _ = e.handle(.up("pad14"), now: 0.1, ctx: ctx, snap: Snapshot())
+        #expect(e.picker?.searching == false)
+        let rc = try KeyChord.parse("rightcmd")
+        let out = e.handle(.down("rec"), now: 1, ctx: ctx, snap: Snapshot())
+        #expect(out.contains(.search) && e.picker?.searching == true)
+        #expect(plans(out).contains { $0.steps == [.keyDown(rc)] })   // VoiceInk still starts
+        #expect(e.picker?.all.contains { $0.value == Engine.pickerCancel } == false)
+        _ = e.filterPicker("chat gpt", now: 2)
+        let took = plans(e.handle(.down("pad11"), now: 3, ctx: ctx, snap: Snapshot()))
+        #expect(took.first?.steps.last == .typeText("https://chatgpt.com/\n"))
+        #expect(plans(e.handle(.up("rec"), now: 3.5, ctx: ctx, snap: Snapshot())).contains { $0.steps == [.keyUp(rc)] })
+    }
+
+    /// An agent's menu (Rewind, /model): the middle four — green ✓ = Enter (7, 11), red ✕ = Esc (6, 10), the rest off.
+    @Test func menuNavIsGreenAndRed() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
         _ = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())
-        let p = plans(e.handle(.down("pad3"), now: 1, ctx: ctx, snap: Snapshot()))
+        #expect(plans(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: Snapshot())).isEmpty)   // off
+        let p = plans(e.handle(.down("pad11"), now: 1, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("enter")])])
         #expect(e.stack.last?.layer == "menu-nav")      // rewind's second menu
-        _ = e.handle(.down("pad5"), now: 2, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad7"), now: 2, ctx: ctx, snap: Snapshot())
+        #expect(e.stack.isEmpty)
+        // red: Esc, and the menu mode ends at once
+        _ = e.handle(.down("pad14"), now: 3, ctx: ctx, snap: Snapshot())
+        #expect(plans(e.handle(.down("pad13"), now: 3.2, ctx: ctx, snap: Snapshot())).isEmpty)                 // off
+        #expect(plans(e.handle(.down("pad6"), now: 3.5, ctx: ctx, snap: Snapshot())).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
         #expect(e.stack.isEmpty)
     }
 
-    @Test func anyPadSelectsInPicker() throws {
+    /// A list: only the middle four pads — left red ✕ closes (6, 10), right green ✓ takes (7, 11); the rest are off.
+    @Test func listIsGreenAndRed() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
         _ = e.handle(.turn("knob8", 1), now: 0, ctx: ctx, snap: Snapshot())
-        let p = plans(e.handle(.down("pad12"), now: 1, ctx: ctx, snap: Snapshot()))
+        #expect(e.appearance("pad11", ctx: ctx, snap: Snapshot()).key == "ok")
+        #expect(e.appearance("pad7", ctx: ctx, snap: Snapshot()).key == "ok")
+        #expect(e.appearance("pad6", ctx: ctx, snap: Snapshot()).key == "danger" && e.appearance("pad10", ctx: ctx, snap: Snapshot()).key == "danger")
+        #expect(e.appearance("pad14", ctx: ctx, snap: Snapshot()).bound == false)
+        #expect(e.appearance("pad3", ctx: ctx, snap: Snapshot()).bound == false)        // window pads are off meanwhile
+        #expect(plans(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: Snapshot())).isEmpty && e.picker != nil)
+        let p = plans(e.handle(.down("pad11"), now: 1, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxText(pane: "%2", "/effort low\n")])
-        #expect(plans(e.handle(.up("pad12"), now: 1.1, ctx: ctx, snap: Snapshot())).isEmpty)
+        #expect(plans(e.handle(.up("pad11"), now: 1.1, ctx: ctx, snap: Snapshot())).isEmpty)
+        // < > move; red closes without taking anything
+        _ = e.handle(.turn("knob8", 1), now: 2, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("right"), now: 2.1, ctx: ctx, snap: Snapshot())
+        #expect(e.picker?.index == 2)
+        #expect(plans(e.handle(.down("pad13"), now: 2.15, ctx: ctx, snap: Snapshot())).isEmpty && e.picker != nil)   // off
+        #expect(plans(e.handle(.down("pad6"), now: 2.2, ctx: ctx, snap: Snapshot())).allSatisfy { $0.steps.isEmpty } && e.picker == nil)
     }
 
     @Test func answerLayerAppearsForQuestions() throws {
@@ -496,10 +716,12 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
                                                 "tool_use_id": .string("t"), "tool_input": q], pane: "%2", now: 0)
         let snap = Snapshot.build(context: ctx, agents: s, custom: [:], layerPath: "")
         #expect(e.appearance("pad2", ctx: ctx, snap: snap).label == "2 · Redis")
-        #expect(e.appearance("pad3", ctx: ctx, snap: snap).label == "Win 3")      // only 2 options: pad3 falls through
+        let p3 = e.appearance("pad3", ctx: ctx, snap: snap)                      // only 2 options: pad3 is grey, not Win 3
+        #expect(p3.label == "" && p3.key == "off")
+        #expect(plans(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: snap)).isEmpty)
         #expect(plans(e.handle(.down("pad2"), now: 1, ctx: ctx, snap: snap)).first?.steps
                 == [.tmuxKeys(pane: "%2", [KeyChord(modifiers: [], key: "2")])])
-        #expect(e.layerPath(ctx, now: 1, snap: snap).contains("Claude asks"))
+        #expect(e.layerPath(ctx, now: 1, snap: snap).contains("Choose"))
     }
 
     @Test func shiftLabelsShownAsAlt() throws {
@@ -514,6 +736,127 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     }
 }
 
+@Suite struct ITermToggleTests {
+    /// < shows / hides iTerm's hotkey window (⌃<) in every ruleset — as a real keypress, never typed into tmux.
+    @Test func lessThanTogglesITermEverywhere() throws {
+        let e = Engine(config: try loadConfig())
+        let toggle = [PlanStep.keys([try KeyChord.parse("ctrl+<")])]
+        var browser = Context(); browser.app = "org.mozilla.firefox"
+        var discord = Context(); discord.app = "com.hnc.Discord"
+        var text = Context(); text.app = "com.apple.TextEdit"
+        let question = Snapshot(values: windowsSnap.values.merging(ScreenChoices.parse("""
+         Which store?
+         ❯ 1. SQLite
+           2. Redis
+        """)!.vars) { $1 })
+        for (ctx, snap) in [(itermContext(), Snapshot()), (itermContext(cmd: "codex"), Snapshot()), (browser, Snapshot()),
+                            (discord, Snapshot()), (text, Snapshot()), (itermContext(), question)] {
+            let p = plans(e.handle(.down("left"), now: 0, ctx: ctx, snap: snap))
+            #expect(p.first?.steps == toggle, "in \(e.layerPath(ctx, now: 0, snap: snap))")
+            _ = e.handle(.up("left"), now: 0.1, ctx: ctx, snap: snap)
+        }
+    }
+}
+
+@Suite struct AppSlotTests {
+    /// Bank-B pads 1–4 in every ruleset: dark = not running, dim = running, bright = in front (tap again: next window).
+    @Test func appSlotsLightAndSwitch() throws {
+        let e = Engine(config: try loadConfig())
+        e.padBank = "B"
+        var ctx = itermContext()
+        ctx.running = [RunningApp(bundleId: "com.googlecode.iterm2", name: "iTerm2", file: "iTerm"),
+                       RunningApp(bundleId: "org.mozilla.firefox", name: "Firefox", file: "Firefox")]
+        ctx.previousApp = ctx.running[1]
+        let snap = Snapshot.build(context: ctx, agents: AgentStore(), custom: [:], layerPath: "")
+        let (iterm, firefox, obsidian, back) = (e.appearance("pad1", ctx: ctx, snap: snap, shift: true), e.appearance("pad2", ctx: ctx, snap: snap, shift: true),
+                                                e.appearance("pad3", ctx: ctx, snap: snap, shift: true), e.appearance("pad4", ctx: ctx, snap: snap, shift: true))
+        #expect(iterm.selected && !iterm.windowSlot)                  // in front: bright
+        #expect(firefox.windowSlot && !firefox.selected)              // running: dim
+        #expect(obsidian.key == "off")                                // not running: dark
+        #expect(back.label == "↩ Firefox")
+        #expect(plans(e.handle(.down("pad1"), now: 0, ctx: ctx, snap: snap)).first?.steps == [.cycleWindow(next: true)])
+        #expect(plans(e.handle(.down("pad2"), now: 0.1, ctx: ctx, snap: snap)).first?.steps == [.openApp("org.mozilla.firefox")])
+        #expect(plans(e.handle(.down("pad3"), now: 0.2, ctx: ctx, snap: snap)).first?.steps == [.openApp("Obsidian")])
+        #expect(plans(e.handle(.down("pad4"), now: 0.3, ctx: ctx, snap: snap)).first?.steps == [.openApp("org.mozilla.firefox")])
+        // the same slots in the browser
+        var b = ctx; b.app = "org.mozilla.firefox"; b.appName = "Firefox"; b.focusedPane = nil
+        #expect(e.baseLayer(b).id == "browser")
+        #expect(e.appearance("pad2", ctx: b, snap: snap, shift: true).selected)
+    }
+}
+
+@Suite struct WindowListTests {
+    /// KNOB BANK B · knob 4: the first turn opens every window, already on the one behind this; turning moves,
+    /// resting 0.9 s goes there.
+    @Test func turnThenRestGoesThere() throws {
+        PickerDef.providers["windows"] = {
+            (0..<4).map { PickerItem(label: "App — w\($0)", value: "1\u{1F}\($0)\u{1F}w\($0)", action: .focusWindow("1\u{1F}\($0)\u{1F}w\($0)")) }
+        }
+        let e = Engine(config: try loadConfig())
+        e.knobBank = "B"
+        let ctx = itermContext()
+        _ = e.handle(.turn("knob4", 1), now: 0, ctx: ctx, snap: Snapshot())
+        #expect(e.picker?.id == "windows" && e.picker?.items[e.picker!.index].label == "App — w1")
+        #expect(plans(e.tick(now: 0.5, ctx: ctx, snap: Snapshot())).isEmpty)
+        _ = e.handle(.turn("knob4", 1), now: 0.6, ctx: ctx, snap: Snapshot())      // keeps turning: w2, and the wait restarts
+        #expect(plans(e.tick(now: 1.2, ctx: ctx, snap: Snapshot())).isEmpty)
+        let went = plans(e.tick(now: 1.6, ctx: ctx, snap: Snapshot()))
+        #expect(went.first?.steps == [.focusWindow("1\u{1F}2\u{1F}w2")])
+        #expect(e.picker == nil)
+        // ⏸ cancels instead
+        _ = e.handle(.turn("knob4", 1), now: 3, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pause"), now: 3.2, ctx: ctx, snap: Snapshot())
+        #expect(plans(e.tick(now: 5, ctx: ctx, snap: Snapshot())).isEmpty && e.picker == nil)
+    }
+}
+
+@Suite struct MeetingTests {
+    @Test func meetTabGetsMeetingControls() throws {
+        let e = Engine(config: try loadConfig())
+        var ctx = Context(); ctx.app = "org.mozilla.firefox"; ctx.appName = "Firefox"
+        ctx.windowTitle = "Meet - abc-defg-hij"
+        #expect(e.baseLayer(ctx).id == "meet")
+        #expect(plans(e.handle(.down("pad1"), now: 0, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("cmd+d")])])
+        #expect(plans(e.handle(.down("pad4"), now: 0.1, ctx: ctx, snap: Snapshot())).first?.steps == [.keyDown(try KeyChord.parse("space"))])
+        _ = e.handle(.up("pad4"), now: 0.5, ctx: ctx, snap: Snapshot())
+        // Leave asks first: green ✓ / red ✕
+        _ = e.handle(.down("pad12"), now: 1, ctx: ctx, snap: Snapshot())
+        #expect(e.stack.last?.layer == "confirm")
+        #expect(e.appearance("pad11", ctx: ctx, snap: Snapshot()).label == "✓ Leave")
+        _ = e.handle(.down("pad16"), now: 1.2, ctx: ctx, snap: Snapshot())          // red ✕: stays in the meeting
+        #expect(e.stack.isEmpty)
+        ctx.windowTitle = "Chat | General | Microsoft Teams"
+        #expect(e.baseLayer(ctx).id == "teams")
+        ctx.windowTitle = "Hacker News"
+        #expect(e.baseLayer(ctx).id == "browser")
+        ctx.windowTitle = "Lo-fi beats to code to - YouTube"
+        #expect(e.baseLayer(ctx).id == "youtube")
+        #expect(plans(e.handle(.down("pad1"), now: 10, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("k")])])
+        ctx.windowTitle = "Pull requests · owner/repo · GitHub"
+        #expect(e.baseLayer(ctx).id == "github")
+        #expect(plans(e.handle(.down("pad7"), now: 11, ctx: ctx, snap: Snapshot())).first?.steps
+                == [.keys([try KeyChord.parse("g"), try KeyChord.parse("p")])])
+        ctx.windowTitle = "GitHub - the full course - YouTube"                      // both match: YouTube wins
+        #expect(e.baseLayer(ctx).id == "youtube")
+        // tabs move in tab order (Firefox's ⌃⇥ may be "recently used")
+        #expect(plans(e.handle(.turn("knob3", 3), now: 20, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("cmd+alt+right")])])
+    }
+}
+
+@Suite struct DiscordTests {
+    @Test func voiceControls() throws {
+        let e = Engine(config: try loadConfig())
+        var ctx = Context(); ctx.app = "com.hnc.Discord"; ctx.appName = "Discord"
+        #expect(e.baseLayer(ctx).id == "discord")
+        #expect(plans(e.handle(.down("pad1"), now: 0, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("cmd+shift+m")])])
+        #expect(plans(e.handle(.down("pad2"), now: 0.1, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("cmd+shift+d")])])
+        #expect(plans(e.handle(.down("pad3"), now: 0.2, ctx: ctx, snap: Snapshot())).first?.steps == [.pressButton(["Turn On Camera", "Turn Off Camera"])])
+        _ = e.handle(.down("pad12"), now: 0.3, ctx: ctx, snap: Snapshot())                     // Leave call asks first
+        #expect(e.stack.last?.layer == "confirm")
+        #expect(plans(e.handle(.down("pad11"), now: 0.4, ctx: ctx, snap: Snapshot())).contains { $0.steps == [.pressButton(["Disconnect"])] })
+    }
+}
+
 @Suite struct BrowserTests {
     @Test func searchPadsAndQuickChats() throws {
         let e = Engine(config: try loadConfig())
@@ -522,9 +865,20 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         _ = e.handle(.down("pad13"), now: 0, ctx: ctx, snap: Snapshot())
         let tap = plans(e.handle(.up("pad13"), now: 0.1, ctx: ctx, snap: Snapshot()))
         #expect(tap.first?.steps == [.keys([try KeyChord.parse("cmd+t")]), .wait(0.25), .typeText("https://www.google.com\n")])
-        _ = e.handle(.down("pad14"), now: 1, ctx: ctx, snap: Snapshot())
+        // Sites…: pinned sites first; ▶ opens the highlighted one in a new tab
+        _ = e.handle(.down("pad14"), now: 0.5, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("pad14"), now: 0.6, ctx: ctx, snap: Snapshot())
+        #expect(e.picker?.id == "sites" && e.picker?.items[1].label == "ChatGPT")
+        #expect(plans(e.handle(.down("play"), now: 0.7, ctx: ctx, snap: Snapshot())).first?.steps
+                == [.keys([try KeyChord.parse("cmd+t")]), .wait(0.25), .typeText("https://chatgpt.com/\n")])
+        _ = e.handle(.up("play"), now: 0.75, ctx: ctx, snap: Snapshot())
+        // DuckDuckGo moved to bank B pad 16
+        e.padBank = "B"
+        _ = e.handle(.down("pad16"), now: 1, ctx: ctx, snap: Snapshot())
         let hold = plans(e.tick(now: 1.6, ctx: ctx, snap: Snapshot()))
         #expect(hold.first?.steps.last == .typeText("https://duckduckgo.com/?q=%CLIPBOARD_Q%\n"))
+        _ = e.handle(.up("pad16"), now: 1.7, ctx: ctx, snap: Snapshot())
+        e.padBank = "A"
         #expect(plans(e.handle(.down("pad15"), now: 2, ctx: ctx, snap: Snapshot())).isEmpty)   // has a hold: fires on release
         #expect(plans(e.handle(.up("pad15"), now: 2.1, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("alt+space")])])
         _ = e.handle(.down("pad16"), now: 3, ctx: ctx, snap: Snapshot())
@@ -565,7 +919,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         _ = e.handle(.down("pad16"), now: 5, ctx: ctx, snap: Snapshot())   // Skills… has a hold (voice search): a tap fires on release
         #expect(plans(e.handle(.up("pad16"), now: 5.1, ctx: ctx, snap: Snapshot())).first?.sound == "picker")   // opens a list
         #expect(sound(.turn("knob1", 1), 5.5) == "scroll")        // moving in the list
-        #expect(sound(.down("pad4"), 6) == "select")              // a pad selects in the list
+        #expect(sound(.down("pad11"), 6) == "select")             // green ✓ selects in the list
         _ = e.handle(.down("pad16"), now: 7, ctx: ctx, snap: Snapshot())
         _ = e.handle(.up("pad16"), now: 7.1, ctx: ctx, snap: Snapshot())
         #expect(sound(.down("pause"), 8) == "cancel")             // ⏸ cancels

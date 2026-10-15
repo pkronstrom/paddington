@@ -1,0 +1,8 @@
+# Lists every ruleset can use. Ruleset folders have their own pickers.toml too.
+
+[windows]
+title = "Windows"
+# Every app's windows, apps front to back (KNOB BANK B · knob 4). The turn that opens it already moves to the
+# window behind this one; keep turning to move on, stop for a moment and it goes there. ⏸ cancels.
+source       = "windows"
+commit_after = "0.9s"

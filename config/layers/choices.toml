@@ -1,0 +1,32 @@
+# A choice prompt in the focused agent pane — Claude's questions and permission menus, Codex's questions.
+# padctl reads it from the screen (and from Claude's hook payload), so the options are exactly what's shown.
+# Pads 1–8 are the options: white, the ones answered in words magenta, and the one under the agent's cursor
+# (what ▶ takes) green and blinking — blinking always means "this waits for you now". Pads past the last option
+# stay grey and do nothing (no windows or drums from below). The top row is a red ✕ (Esc).
+# The free-form option ("Type something", "Other", "No, and tell Claude…") starts VoiceInk hands-free —
+# then ● pastes, ▶ pastes and sends.
+name  = "Choose"
+kind  = "modal"
+color = "#fcc419"
+auto  = "q.active and not q.confirm"    # questions; confirmations use permit.toml
+
+pad1  = { label = "{q.label.1}", answer = 1, color = "choice", look = "choice", to = "pane" }
+pad2  = { label = "{q.label.2}", answer = 2, color = "choice", look = "choice", to = "pane" }
+pad3  = { label = "{q.label.3}", answer = 3, color = "choice", look = "choice", to = "pane" }
+pad4  = { label = "{q.label.4}", answer = 4, color = "choice", look = "choice", to = "pane" }
+pad5  = { label = "{q.label.5}", answer = 5, color = "choice", look = "choice", to = "pane" }
+pad6  = { label = "{q.label.6}", answer = 6, color = "choice", look = "choice", to = "pane" }
+pad7  = { label = "{q.label.7}", answer = 7, color = "choice", look = "choice", to = "pane" }
+pad8  = { label = "{q.label.8}", answer = 8, color = "choice", look = "choice", to = "pane" }
+
+# ── row 4: a big red ✕ — Esc dismisses the question ───────────
+pad13 = { label = "✕ Cancel", keys = "esc", to = "pane", color = "danger", desc = "Esc — dismiss the question" }
+pad14 = { label = "✕ Cancel", keys = "esc", to = "pane", color = "danger", desc = "Esc — dismiss the question" }
+pad15 = { label = "✕ Cancel", keys = "esc", to = "pane", color = "danger", desc = "Esc — dismiss the question" }
+pad16 = { label = "✕ Cancel", keys = "esc", to = "pane", color = "danger", desc = "Esc — dismiss the question" }
+
+knob1 = { label = "↑ ↓", keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav" }
+# < stays the iTerm window; knob 2 (← →) also moves between questions
+right = { label = "Next question", keys = "right", to = "pane", color = "nav" }
+play  = { label = "Enter", keys = "enter", to = "pane", color = "ok", hold = { legend = "show" } }
+pause = { label = "Esc", keys = "esc", to = "pane", color = "danger" }
