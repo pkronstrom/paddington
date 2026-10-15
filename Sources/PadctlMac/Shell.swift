@@ -113,9 +113,21 @@ public enum Tmux {
 
     public static func panes() -> [PaneInfo] { (try? panesOrError()) ?? [] }
 
+    static let shells: Set<String> = ["fish", "bash", "zsh", "sh", "dash", "nu", "login"]
+
+    /// A window started as `new-window … claude` runs `fish -c claude`: Claude is a child in fish's process
+    /// group, so tmux names the pane "fish". When a shell runs an agent start command, the pane is that agent.
+    /// (If the agent exits, a `-c` shell exits too and the pane closes, so this can't go stale.)
+    static func agentCommand(current: String, start: String) -> String {
+        guard shells.contains(current) else { return current }
+        let first = start.trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")).split(separator: " ").first.map(String.init) ?? ""
+        let name = (first as NSString).lastPathComponent
+        return Snapshot.agentCommands.contains(name) ? name : current
+    }
+
     /// Throws when tmux itself fails (as opposed to "no server running", which is simply no panes).
     public static func panesOrError() throws -> [PaneInfo] {
-        let fmt = "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_active}\t#{window_active}\t#{pane_current_command}\t#{pane_current_path}"
+        let fmt = "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_active}\t#{window_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_start_command}"
         let r = run(["list-panes", "-a", "-F", fmt])
         guard r.ok else {
             let err = r.err.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -129,7 +141,7 @@ public enum Tmux {
             let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard f.count >= 8, let w = Int(f[1]) else { return nil }
             return PaneInfo(session: f[0], window: w, windowName: f[2], paneId: f[3], active: f[4] == "1" && f[5] == "1",
-                            command: f[6], path: f[7])
+                            command: agentCommand(current: f[6], start: f.count > 8 ? f[8] : ""), path: f[7])
         }
         if panes.isEmpty && !lines.isEmpty { throw KeyError("tmux output not understood (locale?): \(lines[0].prefix(80))") }
         return panes
