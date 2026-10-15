@@ -27,6 +27,101 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     outs.compactMap { if case .plan(let p) = $0 { return p }; return nil }
 }
 
+@Suite struct LegendHoldTests {
+    /// ▶ shows the legend after legend_hold (250 ms), sooner than other holds; a quick tap is still Enter.
+    @Test func shortHoldShowsLegend() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        _ = e.handle(.down("play"), now: 0, ctx: ctx, snap: windowsSnap)
+        #expect(e.tick(now: 0.2, ctx: ctx, snap: windowsSnap).isEmpty)
+        #expect(e.tick(now: 0.3, ctx: ctx, snap: windowsSnap).contains(.legend(.showHeld)))
+        _ = e.handle(.up("play"), now: 0.6, ctx: ctx, snap: windowsSnap)
+        _ = e.handle(.down("play"), now: 1, ctx: ctx, snap: windowsSnap)
+        _ = e.tick(now: 1.1, ctx: ctx, snap: windowsSnap)
+        let tap = plans(e.handle(.up("play"), now: 1.12, ctx: ctx, snap: windowsSnap))
+        #expect(tap.first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("enter")])])
+    }
+}
+
+@Suite struct KnobStepTests {
+    /// Window knob with step = 3: a fresh turn moves on its first unit, then every third; reversing moves at once.
+    @Test func stepMakesKnobsLessSensitive() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        func moves(_ d: Int, _ t: Double) -> Int {
+            plans(e.handle(.turn("knob3", d), now: t, ctx: ctx, snap: windowsSnap)).reduce(0) { $0 + $1.steps.count }
+        }
+        #expect(moves(1, 0) == 1)          // first click: next window
+        #expect(moves(1, 0.1) == 0)
+        #expect(moves(1, 0.2) == 0)
+        #expect(moves(1, 0.3) == 1)        // third unit after the first move
+        #expect(moves(6, 0.4) == 2)        // a fast flick: 6 units = 2 windows, not 6
+        #expect(moves(-1, 0.5) == 1)       // back: moves at once
+        #expect(moves(1, 2.0) == 1)        // after a pause, fresh again
+    }
+}
+
+@Suite struct SearchTests {
+    let items = [PickerItem(label: "/brainstromming", value: "brainstromming", detail: "Explore ideas before building"),
+                 PickerItem(label: "/vault-skills", value: "vault-skills", detail: "Catalog of downloaded-but-inactive skills"),
+                 PickerItem(label: "/vault-mcp", value: "vault-mcp", detail: "Vault of inactive MCP servers"),
+                 PickerItem(label: "/rev", value: "rev", detail: "Review code changes"),
+                 PickerItem(label: "◇ stop-slop · writing", value: "stop-slop", action: .text("/vault-skills writing/stop-slop "))]
+
+    /// Dictated text: capitals, punctuation, spoken hyphens, extra words and a misspelt skill name.
+    @Test func dictationFindsTheSkill() {
+        func top(_ q: String) -> String? { PickerSearch.confident(PickerSearch.rank(items, q))?.value }
+        #expect(top("Vault skills.") == "vault-skills")
+        #expect(top("vault MCP") == "vault-mcp")
+        #expect(top("Brainstorming") == "brainstromming")          // the skill's own name is misspelt
+        #expect(top("the stop slop skill please") == "stop-slop")
+        #expect(top("rev") == "rev")
+        // VoiceInk sometimes hears English as Russian: transliterated + sound-alike still finds it
+        let mixed = [PickerItem(label: "/handoff", value: "handoff"), PickerItem(label: "/rev", value: "rev"),
+                     PickerItem(label: "/transcribe-media", value: "transcribe-media"),
+                     PickerItem(label: "◇ claude-handoff · engineering", value: "claude-handoff"),
+                     PickerItem(label: "◇ agent-transcript · engineering", value: "agent-transcript"),
+                     PickerItem(label: "/vault-skills", value: "vault-skills"), PickerItem(label: "/vault-mcp", value: "vault-mcp")]
+        func pick(_ q: String) -> String? { PickerSearch.confident(PickerSearch.rank(mixed, q))?.value }
+        #expect(pick("Хэндофф.") == "handoff")
+        #expect(pick("Хэнд оф.") == "handoff")
+        #expect(pick("Транскрайб.") == "transcribe-media")
+        #expect(pick("Ваулк Скиллс.") == "vault-skills")
+        #expect(pick("transcribe") == "transcribe-media")
+        #expect(PickerSearch.confident(PickerSearch.rank([PickerItem(label: "⧉ context7 · MCP", value: "context7")], "Context seven.")) != nil)
+        #expect(top("vault") == nil)                                // two equally good: don't guess
+        #expect(PickerSearch.rank(items, "review").first?.0.value == "rev")   // via the description
+    }
+
+    /// Hold ● and press Skills…: a search picker; typing filters, Enter takes the top match and types it.
+    @Test func voiceChordOpensSearchAndCommits() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        _ = e.handle(.down("rec"), now: 0, ctx: ctx, snap: windowsSnap)
+        let out = e.handle(.down("pad16"), now: 0.1, ctx: ctx, snap: windowsSnap)
+        #expect(out.contains(.search))
+        #expect(e.picker?.searching == true)
+        _ = e.handle(.up("pad16"), now: 0.2, ctx: ctx, snap: windowsSnap)
+        _ = e.handle(.up("rec"), now: 0.3, ctx: ctx, snap: windowsSnap)
+        // ● pressed again while the list is open: dictation, not a choice
+        _ = e.handle(.down("rec"), now: 0.4, ctx: ctx, snap: windowsSnap)
+        #expect(e.picker != nil)
+        _ = e.handle(.up("rec"), now: 0.5, ctx: ctx, snap: windowsSnap)
+        e.filterPicker("rev", now: 0.6)
+        #expect(e.picker?.index == -1)                       // the search row is highlighted
+        #expect(e.picker?.items.first?.value == "rev")
+        // a knob moves into the results and back up to the search row
+        _ = e.handle(.turn("knob1", 1), now: 0.62, ctx: ctx, snap: windowsSnap)
+        #expect(e.picker?.index == 0)
+        _ = e.handle(.turn("knob1", -1), now: 0.64, ctx: ctx, snap: windowsSnap)
+        #expect(e.picker?.index == -1)
+        // from the search row, ▶ / Enter takes the top match
+        let p = plans(e.commitPicker(now: 0.7, ctx: ctx, snap: windowsSnap))
+        #expect(e.picker == nil)
+        #expect(p.first?.steps.first == .tmuxText(pane: "%2", "/rev "))
+    }
+}
+
 @Suite struct ApprovalTests {
     /// Codex can settle a permission request itself (Guardian auto-review): the next tool call ends the wait.
     @Test func nextToolCallEndsApprovalWait() {
@@ -169,12 +264,12 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext(cmd: "codex")
         #expect(plans(e.handle(.down("pad1"), now: 0, ctx: ctx, snap: windowsSnap)).first?.steps == [.tmux(["select-window", "-t", "main:1"])])
-        #expect(plans(e.handle(.down("pad15"), now: 1, ctx: ctx, snap: Snapshot())).first?.steps == [.tmuxText(pane: "%2", "/compact\n")])
+        #expect(plans(e.handle(.down("pad13"), now: 1, ctx: ctx, snap: Snapshot())).first?.steps == [.tmuxText(pane: "%2", "/compact\n")])
     }
 
     @Test func textGoesToCapturedPane() throws {
         let e = Engine(config: try loadConfig())
-        let p = plans(e.handle(.down("pad15"), now: 0, ctx: itermContext(), snap: Snapshot()))
+        let p = plans(e.handle(.down("pad13"), now: 0, ctx: itermContext(), snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxText(pane: "%2", "/compact\n")])
     }
 
@@ -220,10 +315,15 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(tap.first?.steps == [.tmux(["new-window", "-t", "main:", "-c", home + "/Projects/own", "claude"]),
                                      .tmux(["split-window", "-h", "-t", "main:", "-c", home + "/Projects/own"]),
                                      .tmux(["select-pane", "-t", "main:", "-L"])])
+        // hold New: a shell here
         _ = e.handle(.down("pad11"), now: 1, ctx: ctx, snap: Snapshot())
-        _ = e.tick(now: 1.5, ctx: ctx, snap: Snapshot())
-        #expect(e.picker?.id == "new-session")
+        let hold = plans(e.tick(now: 1.5, ctx: ctx, snap: Snapshot()))
+        #expect(hold.first?.steps == [.tmux(["new-window", "-t", "main:", "-c", "/tmp/w2"])])
         _ = e.handle(.up("pad11"), now: 1.6, ctx: ctx, snap: Snapshot())
+        // New… (pad 9): the options list
+        _ = e.handle(.down("pad9"), now: 1.7, ctx: ctx, snap: Snapshot())
+        #expect(e.picker?.id == "new-session")
+        _ = e.handle(.up("pad9"), now: 1.8, ctx: ctx, snap: Snapshot())
         _ = e.handle(.turn("knob1", 3), now: 2, ctx: ctx, snap: Snapshot())
         _ = e.handle(.turn("knob1", 2), now: 2.05, ctx: ctx, snap: Snapshot())   // → "Claude in project…"
         #expect(e.picker?.items[e.picker!.index].label == "Claude in project…")
@@ -271,7 +371,10 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     }
 
     @Test func nextWaitingUsesSnapshot() throws {
-        let e = Engine(config: try loadConfig())
+        // the action is no longer on a pad by default (window pads blink); bind it for the test
+        var cfg = try loadConfig()
+        cfg.layers["tmux"]?.bindings["pad9"] = try Binding.parse(.table(["agent": .string("next_waiting")]), ctx: "test")
+        let e = Engine(config: cfg)
         let ctx = itermContext()
         let none = plans(e.handle(.down("pad9"), now: 0, ctx: ctx, snap: Snapshot()))
         #expect(none.first?.steps == [.toast("No agent is waiting")])
@@ -282,10 +385,12 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func promptFileIsInterpolated() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        e.padBank = "B"
-        #expect(e.appearance("pad16", ctx: ctx, snap: Snapshot()).altLabel == "Prompts…")
-        _ = e.handle(.down("pad16"), now: 0.1, ctx: ctx, snap: Snapshot())
-        #expect(e.picker?.items[1].label == "Review diff")
+        #expect(e.appearance("pad15", ctx: ctx, snap: Snapshot()).label == "Prompts…")
+        _ = e.handle(.down("pad15"), now: 0.1, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("pad15"), now: 0.15, ctx: ctx, snap: Snapshot())      // a tap (hold = search)
+        let i = e.picker?.items.firstIndex { $0.label == "Review diff" } ?? 0
+        for _ in 0..<(i - 1) { _ = e.handle(.turn("knob1", 1), now: 0.16, ctx: ctx, snap: Snapshot()) }
+        #expect(e.picker.map { $0.items[$0.index].label } == "Review diff")
         let p = plans(e.handle(.down("play"), now: 0.2, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxText(pane: "%2", "Review the uncommitted diff in /tmp/w2. List bugs first, then risks. Don't edit files.")])
     }
@@ -330,10 +435,11 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func modePickerUsesClosedLoop() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        _ = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())
+        e.padBank = "B"                                                           // Mode is on PAD BANK B, pad 15
+        _ = e.handle(.down("pad15"), now: 0, ctx: ctx, snap: Snapshot())
         _ = e.tick(now: 0.6, ctx: ctx, snap: Snapshot())
         #expect(e.picker?.id == "modes")
-        _ = e.handle(.up("pad14"), now: 0.7, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("pad15"), now: 0.7, ctx: ctx, snap: Snapshot())
         _ = e.handle(.turn("knob1", 2), now: 1, ctx: ctx, snap: Snapshot())
         let p = plans(e.handle(.down("play"), now: 1.2, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.setMode(pane: "%2", target: "plan")])
@@ -342,7 +448,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func rewindEntersMenuNavForTwoSelects() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        _ = e.handle(.down("pad13"), now: 0, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())
         #expect(e.stack.last?.layer == "menu-nav")
         let down = try KeyChord.parse("down")
         #expect(plans(e.handle(.turn("knob1", 1), now: 1, ctx: ctx, snap: Snapshot())).first?.steps == [.tmuxKeys(pane: "%2", [down])])
@@ -355,7 +461,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func pauseLeavesMenuNavAtOnce() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        _ = e.handle(.down("pad13"), now: 0, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())
         _ = e.handle(.down("pause"), now: 1, ctx: ctx, snap: Snapshot())
         #expect(e.stack.isEmpty)
     }
@@ -363,7 +469,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func anyPadSelectsInMenuNav() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        _ = e.handle(.down("pad13"), now: 0, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())
         let p = plans(e.handle(.down("pad3"), now: 1, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("enter")])])
         #expect(e.stack.last?.layer == "menu-nav")      // rewind's second menu
@@ -400,10 +506,11 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
         let a = e.appearance("pad13", ctx: ctx, snap: Snapshot())
-        #expect(a.label == "Rewind" && a.altLabel == "/clear")
+        #expect(a.label.hasPrefix("Compact") && a.altLabel == "/clear")
+        #expect(e.appearance("pad14", ctx: ctx, snap: Snapshot()).altLabel == "/resume")
         e.padBank = "B"
         let b = e.appearance("pad13", ctx: ctx, snap: Snapshot())
-        #expect(b.label == "Rewind" && b.altLabel == "/clear")   // fixed: bank A on the face, bank B above
+        #expect(b.label.hasPrefix("Compact") && b.altLabel == "/clear")   // fixed: bank A on the face, bank B above
     }
 }
 
@@ -429,9 +536,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func worktreeFromDictatedTask() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        _ = e.handle(.down("pad11"), now: 0, ctx: ctx, snap: Snapshot())
-        _ = e.tick(now: 0.6, ctx: ctx, snap: Snapshot())                         // hold New → list
-        _ = e.handle(.up("pad11"), now: 0.7, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad9"), now: 0, ctx: ctx, snap: Snapshot())          // New… → list
+        _ = e.handle(.up("pad9"), now: 0.1, ctx: ctx, snap: Snapshot())
         _ = e.handle(.turn("knob1", 3), now: 1, ctx: ctx, snap: Snapshot())       // → "Claude worktree (dictate task)…"
         #expect(e.picker?.items[e.picker!.index].label == "Claude worktree (dictate task)…")
         let out = e.handle(.down("play"), now: 1.1, ctx: ctx, snap: Snapshot())
@@ -449,19 +555,21 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let ctx = itermContext()
         func sound(_ ev: ControlEvent, _ t: Double) -> String? { plans(e.handle(ev, now: t, ctx: ctx, snap: windowsSnap)).first?.sound }
         #expect(sound(.down("pad3"), 0) == "nav")                 // window switch
-        #expect(sound(.down("pad15"), 1) == "act")                // Compact
+        #expect(sound(.down("pad13"), 1) == "act")                // Compact
         #expect(sound(.turn("knob1", 1), 2) == nil)               // ↑↓ knob silent
         #expect(sound(.turn("knob3", 1), 2.5) == "nav")           // window knob clicks
         _ = e.handle(.down("play"), now: 3, ctx: ctx, snap: Snapshot())
         #expect(plans(e.handle(.up("play"), now: 3.1, ctx: ctx, snap: Snapshot())).first?.sound == nil)   // Enter silent
         _ = e.handle(.down("pad11"), now: 4, ctx: ctx, snap: Snapshot())
         #expect(plans(e.handle(.up("pad11"), now: 4.1, ctx: ctx, snap: Snapshot())).first?.sound == "new")
-        #expect(sound(.down("pad16"), 5) == "picker")             // Skills… opens a list
+        _ = e.handle(.down("pad16"), now: 5, ctx: ctx, snap: Snapshot())   // Skills… has a hold (voice search): a tap fires on release
+        #expect(plans(e.handle(.up("pad16"), now: 5.1, ctx: ctx, snap: Snapshot())).first?.sound == "picker")   // opens a list
         #expect(sound(.turn("knob1", 1), 5.5) == "scroll")        // moving in the list
         #expect(sound(.down("pad4"), 6) == "select")              // a pad selects in the list
         _ = e.handle(.down("pad16"), now: 7, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("pad16"), now: 7.1, ctx: ctx, snap: Snapshot())
         #expect(sound(.down("pause"), 8) == "cancel")             // ⏸ cancels
-        _ = e.handle(.down("pad13"), now: 9, ctx: ctx, snap: Snapshot())   // Rewind → menu
+        _ = e.handle(.down("pad14"), now: 9, ctx: ctx, snap: Snapshot())   // Rewind → menu
         #expect(sound(.turn("knob1", 1), 10) == "scroll")
         #expect(sound(.down("pause"), 11) == "cancel")
     }
@@ -531,7 +639,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let snap = Snapshot.build(context: ctx, agents: s, custom: [:], layerPath: "")
         #expect(snap["agent.context"] == .number(85) && snap["usage.5h"] == .number(42))
         let e = Engine(config: try loadConfig())
-        let a = e.appearance("pad15", ctx: ctx, snap: snap)
+        let a = e.appearance("pad13", ctx: ctx, snap: snap)
         #expect(a.label == "Compact 85%" && a.key == "danger")
     }
 

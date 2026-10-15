@@ -11,6 +11,7 @@ pad_b = "shift"                    # PAD BANK B = each layer's [shift] bindings 
 
 [timing]
 hold = "450ms"                     # tap vs hold
+legend_hold = "250ms"              # hold ▶ this long to show the legend
 confirm_hold = "1s"                # confirm = "hold" bindings
 legend_pin = "8s"
 passthrough_limit = "5m"           # safety release for held keys (talk)

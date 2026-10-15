@@ -20,6 +20,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var context = Context()
     var clientTTY: String?
     var lastRegularApp: NSRunningApplication?
+    var searchOpen = false     // the search box belongs to the open search picker
+    let dictation = DictationWatcher()
     let drums = DrumSidecar()
     var midiNote: Int?        // the note of the MIDI message being handled (nil for simulate/socket input)
     var lastPanesAt = Date.distantPast
@@ -70,6 +72,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
 
         reloadConfig(initial: true)
+        DispatchQueue.global(qos: .utility).async { _ = PickerDef.vaultSkills() }   // warm the skill-vault list
         Log.write("start pid=\(getpid()) launchd=\(ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == Self.agentLabel)")
         migrateLoginItem()
         executor.onToast = { [weak self] in self?.legend.toast($0) }
@@ -212,7 +215,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         if let p = c.focusedPane { agents.visit(pane: p.paneId, now: now) }
         let changed = c != context
         context = c
-        if changed, let e = engine { process(e.contextChanged(c)) }
+        if changed, let e = engine {
+            process(e.contextChanged(c))
+            if !e.lastEvent.isEmpty { Log.write(e.lastEvent); e.lastEvent = "" }
+        }
         let sig = "app=\(c.app) tty=\(clientTTY ?? "-") pane=\(c.focusedPane.map { "\($0.paneId) (\($0.command))" } ?? "-") panes=\(c.panes.count) layer=\(engine?.layerPath(c, now: now) ?? "-")"
         if sig != lastContextLog {
             lastContextLog = sig
@@ -300,6 +306,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     func input(_ ev: ControlEvent) {
         guard let e = engine else { return }
+        if talkInput(ev) { return }
         // while the text window is open, ▶ submits and ⏸ cancels; ● (talk) keeps working for dictation
         if inputWindow.isOpen {
             if case .down("play") = ev { inputWindow.submit(); return }
@@ -324,6 +331,111 @@ public final class AppController: NSObject, NSApplicationDelegate {
         if !out.isEmpty { process(out); render() }
     }
 
+    /// A search picker: the list overlay gets a search row at the top that takes typing (without taking focus
+    /// from the terminal) and dictation (VoiceInk's transcript or new clipboard text). A dictated phrase takes the
+    /// clear best match by itself; Enter / ▶ takes the highlighted item (the top match from the search row).
+    func openSearch() {
+        guard !testMode, let e = engine, let p = e.picker, p.searching else { return }
+        if let s = config?.settings { sounds.play("picker", settings: s) }
+        var pending: DispatchWorkItem?
+        searchOpen = true
+        Log.write("search: open \(p.id) (talk held: \(e.isHeld("rec")))")
+        func finish(take: Bool) {
+            guard let e = engine, searchOpen else { return }
+            pending?.cancel()
+            Log.write("search: \(take ? "take \(e.picker.map { $0.items.isEmpty ? "-" : $0.items[max(0, $0.index)].label } ?? "-")" : "cancel")")
+            refreshContext()
+            process(take ? e.commitPicker(now: now, ctx: context, snap: snapshot()) : e.cancelPicker())
+            render()
+        }
+        legend.beginSearch(onType: { [weak self] text, added in
+            guard let self, let e = self.engine, self.searchOpen else { return }
+            Log.write("search: text “\(text)” (+\(added))")
+            self.process(e.filterPicker(text, now: self.now))
+            self.render()
+            // a dictated phrase (or paste) arrives at once: when it settles, take the match if it's clearly the one
+            pending?.cancel()
+            guard added >= 3 else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, let e = self.engine, self.searchOpen, let pick = e.confidentPick() else { return }
+                Log.write("search “\(text)” → \(pick.label)")
+                finish(take: true)
+            }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+        }, onSubmit: { finish(take: true) }, onCancel: { finish(take: false) })
+        dictation.start { [weak self] text in self?.legend.setSearchText(text) }
+    }
+
+    // MARK: hands-free dictation
+
+    /// VoiceInk on ●: a hold is push-to-talk; a quick tap starts hands-free and the next tap stops it (pastes).
+    /// While hands-free is on, ▶ stops it, waits until the text is in, then presses Enter.
+    var talkDownAt = 0.0, lastTalkTap = -10.0
+    var talkLatched = false { didSet { if talkLatched && !oldValue { latchTranscript = DictationWatcher.latestTranscript()?.id ?? 0 } } }
+    var latchTranscript: Int64 = 0      // newest transcript when hands-free started: a newer one means it already ended
+    var swallowPlayUp = false
+
+    /// Returns true when the event was used up here.
+    func talkInput(_ ev: ControlEvent) -> Bool {
+        let talk = config?.settings.roles["talk"] ?? "rec"
+        switch ev {
+        case .down(let c) where c == talk:
+            talkDownAt = now
+        case .up(let c) where c == talk:
+            let held = now - talkDownAt
+            if held >= 0.35 { talkLatched = false }      // push-to-talk: VoiceInk stops on release
+            else { talkLatched.toggle() }                // a tap starts or stops hands-free
+            Log.write("talk: ● \(held >= 0.35 ? "hold" : "tap") \(String(format: "%.2f", held))s → hands-free \(talkLatched ? "on" : "off") (recorder on screen: \(DictationWatcher.recorderVisible()))")
+        case .down("play") where engine?.picker == nil && !inputWindow.isOpen:
+            let recorder = DictationWatcher.recorderVisible()
+            if talkLatched, let t = DictationWatcher.latestTranscript(), t.id > latchTranscript {
+                Log.write("talk: hands-free already ended (VoiceInk saved “\(t.text)”) — ▶ is just Enter")
+                talkLatched = false
+            }
+            if talkLatched {
+                talkLatched = false; swallowPlayUp = true
+                stopTalkThenEnter(tapToStop: true)
+                return true
+            }
+            if recorder && now - talkDownAt < 15 {
+                // just stopped with ● and VoiceInk is still transcribing: wait for the text, then Enter
+                swallowPlayUp = true
+                stopTalkThenEnter(tapToStop: false)
+                return true
+            }
+        case .up("play") where swallowPlayUp:
+            swallowPlayUp = false
+            return true
+        default: break
+        }
+        return false
+    }
+
+    func stopTalkThenEnter(tapToStop: Bool) {
+        let before = DictationWatcher.latestTranscript()?.id ?? 0
+        let talkKey = (try? KeyChord.parse("rightcmd")) ?? KeyChord(modifiers: [], key: "rightcmd")
+        Log.write("talk: ▶ — \(tapToStop ? "stop hands-free, " : "")wait for the text, then Enter (recorder on screen: \(DictationWatcher.recorderVisible()))")
+        if tapToStop { try? Keyboard.down(talkKey); usleep(40_000); try? Keyboard.up(talkKey) }     // the stop tap VoiceInk expects
+        let started = Date()
+        func poll() {
+            if let t = DictationWatcher.latestTranscript(), t.id > before {
+                // the transcript is saved; give the paste a moment, then Enter through the normal ▶ binding
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                    guard let self else { return }
+                    Log.write("talk: “\(t.text)” is in — Enter")
+                    self.input(.down("play")); self.input(.up("play"))
+                }
+                return
+            }
+            guard Date().timeIntervalSince(started) < 12 else {
+                legend.toast("No dictation arrived — not pressing Enter"); return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
+        }
+        poll()
+    }
+
     func process(_ outs: [EngineOutput]) {
         for o in outs {
             switch o {
@@ -334,6 +446,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 if let s = config?.settings, !(byPadbeat && p.steps.isEmpty) { sounds.play(p.sound, settings: s) }
                 if !p.steps.isEmpty { executor.run(p) }
             case .legend(let cmd): legend.apply(cmd)
+            case .search: openSearch()
             case .input(let r):
                 if testMode { break }
                 if let s = config?.settings { sounds.play("picker", settings: s) }
@@ -363,6 +476,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
             return
         }
         let snap = snapshot()
+        // the search picker ended elsewhere (a pad chose, ⏸, timeout): close its search box too
+        if searchOpen, e.picker?.searching != true {
+            Log.write("search: list ended elsewhere (\(e.picker == nil ? "closed" : "replaced")) — closing the box. \(e.lastEvent)")
+            e.lastEvent = ""
+            searchOpen = false; dictation.stop(); legend.endSearch()
+        }
         let m = legend.model
         m.layout = cfg.device.layout
         m.buttonLabels = cfg.device.layout.labels
@@ -379,9 +498,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let modal = stack.last?.kind == .modal
         m.frameStyle = modal ? .modal : (e.shiftHeld ? .held : (stack.count > 1 ? .temporary : .base))
         legend.showPicker(e.picker)
+        // menus you open (Rewind, /resume…) show the legend; layers that switch on by themselves when an agent
+        // waits (Answer, Permit) don't — the blinking window pad already says so
+        let opened = modal && stack.last.map { top in e.stack.contains { $0.layer == top.id } } == true
         let wasForced = legend.forced
-        legend.forced = modal
-        if wasForced != modal { legend.update() }
+        legend.forced = opened
+        if wasForced != opened { legend.update() }
         let connected = padSourcePresent
         m.connected = connected
         var conn = connected ? cfg.device.name : (ble?.status ?? "not connected")

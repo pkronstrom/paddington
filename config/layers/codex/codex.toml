@@ -11,9 +11,9 @@ play  = { label = "Submit", keys = "enter", color = "ok", hold = { legend = "sho
 pause = { label = "Esc",    keys = "esc", color = "warn", desc = "Esc on press: stop the running turn" }
 
 # ── row 4: agent verbs (same spots as Claude) ─────────────────
-pad13 = { label = "Backtrack",  keys = "esc esc", color = "act", desc = "Esc Esc — edit a previous message (empty input)" }
-pad14 = { label = "Approvals",  text = "/approvals\n", then = "menu-nav", color = "act", desc = "pick the approval mode — knob ↑↓, any pad selects" }
-pad15 = { label = "Compact",    text = "/compact\n", color = "act" }
+pad13 = { label = "Compact",    text = "/compact\n", color = "act" }
+pad14 = { label = "Backtrack",  keys = "esc esc", color = "act", desc = "Esc Esc — edit a previous message (empty input)" }
+pad15 = { label = "Prompts…", picker = "prompts", hold = { search = "prompts" }, with = { rec = { search = "prompts" } }, color = "skill", desc = "tap: list · hold, or press while holding ● Talk: search — type or say it, ▶ / Enter pastes it" }
 pad16 = { label = "Commands…",  picker = "codex-commands", color = "skill" }
 
 # ── knobs 7–8: settings (Codex's own /model menu) ─────────────
@@ -23,5 +23,5 @@ knob8 = { label = "Reasoning", text = "/model\n", then = "menu-nav", color = "ac
 [shift]
 pad13 = { label = "/new",     text = "/new\n", confirm = "hold", color = "danger" }
 pad14 = { label = "/status",  text = "/status\n", color = "sys" }
-pad15 = { label = "/init",    text = "/init\n", color = "skill" }
+pad15 = { label = "Approvals",  text = "/approvals\n", then = "menu-nav", color = "act", desc = "pick the approval mode — knob ↑↓, any pad selects" }
 pad16 = { label = "/mention", text = "/mention ", color = "act", desc = "attach a file — type or dictate the name" }

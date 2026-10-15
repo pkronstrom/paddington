@@ -34,8 +34,8 @@ pad16 = { label = "Claude",  keys = "alt alt", color = "skill", desc = "Claude q
 # ── knobs ─────────────────────────────────────────────────────
 knob1 = { label = "Scroll",     keys = { cw = "down", ccw = "up" }, color = "nav", repeat = "accel" }
 knob2 = { label = "← →",        keys = { cw = "right", ccw = "left" }, color = "nav" }
-knob3 = { label = "Tabs",       keys = { cw = "ctrl+tab", ccw = "ctrl+shift+tab" }, color = "nav", sound = "nav" }
-knob4 = { label = "Windows",    cw = { window = "next" }, ccw = { window = "prev" }, color = "nav", sound = "nav" }
+knob3 = { label = "Tabs", step = 3,       keys = { cw = "ctrl+tab", ccw = "ctrl+shift+tab" }, color = "nav", sound = "nav" }
+knob4 = { label = "Windows", step = 3,    cw = { window = "next" }, ccw = { window = "prev" }, color = "nav", sound = "nav" }
 knob5 = { label = "Page ↑ ↓",   keys = { cw = "pagedown", ccw = "pageup" }, color = "nav" }
 knob6 = { label = "Zoom",       keys = { cw = "cmd+plus", ccw = "cmd+minus" }, color = "sys" }
 knob7 = { label = "History",    keys = { cw = "cmd+right", ccw = "cmd+left" }, color = "nav", sound = "nav" }

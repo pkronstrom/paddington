@@ -36,6 +36,7 @@ public enum EngineOutput: Equatable {
     case legend(LegendCommand)
     case redraw
     case input(InputRequest)
+    case search                     // a picker with a search box opened: the app shows a text field for it
 }
 
 /// The app asks the user for text, then hands it back with `Engine.submitInput`.
@@ -154,6 +155,8 @@ public final class Engine {
     private var heldKeys: [String: (chord: KeyChord, since: Double)] = [:]
     private var lastBaseId: String?
     public private(set) var picker: PickerState?
+    public var lastEvent = ""                       // for the app's log: why something closed
+    public func isHeld(_ control: String) -> Bool { presses[control] != nil }
     private var extraVars: [String: Value] = [:]
     public static let pickerTimeout = 20.0
     public static let pickerCancel = "\u{1}cancel"
@@ -251,6 +254,7 @@ public final class Engine {
         let base = baseLayer(ctx).id
         defer { lastBaseId = base }
         guard let last = lastBaseId, last != base else { return [] }
+        if picker != nil { lastEvent = "list closed: layer changed \(last) → \(base)" }
         let before = stack.count
         stack.removeAll { $0.activation != .switch }
         let hadPicker = picker != nil
@@ -286,6 +290,11 @@ public final class Engine {
             presses[c] = Press(binding: b2, layer: l2, down: now, fired: false, role: nil)
         }
         presses[c] = presses[c] ?? Press(binding: b, layer: l, down: now, fired: false, role: nil)
+        // a chord: another control is held down (e.g. ● Talk while pressing Skills…) → its `with` action instead
+        if let (_, act) = b.with.first(where: { presses[$0.key] != nil && $0.key != c }) {
+            presses[c]?.fired = true
+            return fire(act, binding: b, layer: l, control: c, now: now, ctx: ctx, snap: snap)
+        }
         if let k = b.passthrough {
             heldKeys[c] = (k, now)
             presses[c]?.fired = true
@@ -319,14 +328,32 @@ public final class Engine {
         return fire(b.action, binding: b, layer: l, control: c, now: now, ctx: ctx, snap: snap)
     }
 
-    func turn(_ c: String, _ d: Int, now: Double, ctx: Context, snap: Snapshot) -> [EngineOutput] {
+    /// Knob travel not yet turned into moves (bindings with step > 1).
+    var knobTravel: [String: (sum: Int, at: Double, dir: Int)] = [:]
+
+    func turn(_ c: String, _ rawDelta: Int, now: Double, ctx: Context, snap: Snapshot) -> [EngineOutput] {
         guard let (b, l) = resolve(c, ctx, snap) else { return [] }
+        var d = rawDelta
+        if b.step > 1 {
+            // less sensitive: `step` units per move. A fresh turn (after a pause or a change of direction) moves on
+            // its first unit, so it never feels late; after that every `step` units.
+            let dir = d > 0 ? 1 : -1
+            var t = knobTravel[c] ?? (0, -10, 0)
+            if now - t.at > 0.8 || dir != t.dir { t.sum = dir * (b.step - 1) }
+            t.sum += d; t.at = now; t.dir = dir
+            let moves = t.sum / b.step
+            t.sum -= moves * b.step
+            knobTravel[c] = t
+            if moves == 0 { return [] }
+            d = moves
+        }
         let action = d > 0 ? (b.cw ?? b.action) : (b.ccw ?? b.action)
         var n = abs(d)
         if b.accel && n >= config.settings.accelThreshold { n *= 2 }
         n = min(n, 24)
         if b.then != nil { n = 1 }   // opens a menu: once, later detents move inside it
         if case .picker = action { n = 1 }
+        if case .search = action { n = 1 }
         var out: [EngineOutput] = []
         for _ in 0..<n { out += fire(action, binding: b, layer: l, control: c, now: now, ctx: ctx, snap: snap) }
         return merge(out)
@@ -340,7 +367,8 @@ public final class Engine {
             if b.confirmHold, now - p.down >= config.settings.confirmHoldMs / 1000 {
                 presses[c]?.fired = true
                 out += fire(b.action, binding: b, layer: l, control: c, now: now, ctx: ctx, snap: snap)
-            } else if !b.confirmHold, let h = b.hold, now - p.down >= (b.holdTime ?? config.settings.holdMs / 1000) {
+            } else if !b.confirmHold, let h = b.hold,
+                      now - p.down >= (b.holdTime ?? (h == .legend("show") ? config.settings.legendHoldMs : config.settings.holdMs) / 1000) {
                 presses[c]?.fired = true
                 if case .legend("show") = h { presses[c]?.legend = true; out.append(.legend(.showHeld)); continue }
                 out += fire(h, binding: b, layer: l, control: c, now: now, ctx: ctx, snap: snap)
@@ -375,17 +403,23 @@ public final class Engine {
         if p.expires <= now { picker = nil; return nil }
         switch e {
         case .turn(_, let d):
-            let next = max(0, min(p.items.count - 1, p.index + (d > 0 ? 1 : -1) * min(abs(d), 3)))
+            // a search list: -1 is the search row at the top, the knob moves down into the results and back
+            let first = p.searching ? -1 : 0
+            let next = max(first, min(p.items.count - 1, p.index + (d > 0 ? 1 : -1) * min(abs(d), 3)))
             let moved = next != p.index
             p.index = next
             p.expires = now + Engine.pickerTimeout
             picker = p
             return moved ? [soundOnly("scroll"), .redraw] : [.redraw]
         case .down(let c) where c != "pause":
+            // a hold-through key (● Talk for dictation) works normally while a list is open
+            if let (b, _) = resolve(c, ctx, snap), b.passthrough != nil { return nil }
             picker = nil
             presses[c] = Press(binding: nil, layer: nil, down: now, fired: true, role: nil)
             guard let def = config.pickers[p.id], let layer = config.layers[p.layer] ?? Optional(baseLayer(ctx)) else { return [.redraw] }
-            let item = p.items[p.index]
+            // on the search row: the top match
+            guard !p.items.isEmpty else { return [soundOnly("cancel"), .redraw] }
+            let item = p.items[max(0, min(p.index, p.items.count - 1))]
             if item.value == Engine.pickerCancel { return [soundOnly("cancel"), .redraw] }
             extraVars = ["item": .string(item.value), "item.label": .string(item.label)]
             defer { extraVars = [:] }
@@ -402,6 +436,39 @@ public final class Engine {
         case .up:
             return nil
         }
+    }
+
+    /// Search pickers: show the items matching `query`, best first (empty = everything); ⏸ cancels.
+    @discardableResult
+    public func filterPicker(_ query: String, now: Double) -> [EngineOutput] {
+        guard var p = picker, p.searching else { return [] }
+        p.query = query
+        p.items = query.trimmingCharacters(in: .whitespaces).isEmpty ? p.all : PickerSearch.rank(p.all, query).map(\.0)
+        p.index = -1          // the search row is highlighted until a knob moves into the results
+        p.expires = now + Engine.pickerTimeout * 3
+        picker = p
+        return [.redraw]
+    }
+
+    /// The best match when it's clearly the one meant (for dictated searches).
+    public func confidentPick() -> PickerItem? {
+        guard let p = picker, p.searching, !p.query.isEmpty else { return nil }
+        return PickerSearch.confident(PickerSearch.rank(p.all, p.query))
+    }
+
+    /// Take the highlighted item (▶ / Enter in the search box). Closes the picker.
+    public func commitPicker(now: Double, ctx: Context, snap: Snapshot) -> [EngineOutput] {
+        guard picker != nil else { return [] }
+        let out = pickerInput(.down("search"), now: now, ctx: ctx, snap: snap) ?? []
+        presses["search"] = nil
+        return out
+    }
+
+    /// Close the picker without taking anything.
+    public func cancelPicker() -> [EngineOutput] {
+        guard picker != nil else { return [] }
+        picker = nil
+        return [soundOnly("cancel"), .redraw]
     }
 
     /// Run an input request's action with the text the user entered ({input}).
@@ -470,6 +537,7 @@ public final class Engine {
         if let s = b.sound { return s.isEmpty ? nil : s }
         if control.hasPrefix("knob") || b.passthrough != nil { return nil }
         if case .picker = action { return "picker" }
+        if case .search = action { return "picker" }
         if case .mode = action { return "mode" }
         if let c = b.color, config.settings.sounds[c] != nil { return config.settings.sounds[c]!.isEmpty ? nil : c }
         if b.look != nil { return "nav" }
@@ -539,6 +607,15 @@ public final class Engine {
         case .setState(let k, let val): steps.append(.setState(k, val))
         case .toast(let s): steps.append(.toast(interpolate(s, v)))
         case .wait(let d): steps.append(.wait(d))
+        case .search(let id):
+            guard let def = config.pickers[id] else { steps.append(.toast("Unknown picker '\(id)'")); return }
+            let items = def.resolveItems(config: config)
+            guard !items.isEmpty else { steps.append(.toast("\(def.title): nothing to pick")); return }
+            var p = PickerState(id: id, title: def.title, items: [], index: 0, expires: now + Engine.pickerTimeout * 3, layer: layer.id)
+            p.all = items; p.searching = true
+            picker = p
+            _ = filterPicker("", now: now)
+            out.append(.search); out.append(.redraw)
         case .picker(let id):
             guard let def = config.pickers[id] else { steps.append(.toast("Unknown picker '\(id)'")); return }
             if var p = picker, p.id == id {
@@ -664,6 +741,7 @@ public final class Engine {
             case .seq(let a): return a.map { d($0) }.joined(separator: ", ")
             case .legend(let s): return s == "pin" ? "pin legend" : "show legend"
             case .picker(let id): return "pick \(config.pickers[id]?.title ?? id)"
+            case .search(let id): return "search \(config.pickers[id]?.title ?? id) (type or dictate)"
             case .answer(let n): return "answer option \(n)"
             case .window(let d): return "\(d) window of this app"
             case .input(let p, _): return "ask: \(p)"

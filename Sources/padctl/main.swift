@@ -174,6 +174,24 @@ case "reload":
 case "bt":
     out(jsonString(appRequest(["cmd": args.count > 1 && args[1] == "window" ? "bt_window" : "bt_connect"])))
 
+case "items":
+    // what a list (picker) shows right now, e.g. `padctl items skills` — add a query to see the search ranking
+    guard args.count >= 2 else { fail("usage: padctl items <picker> [search words…]") }
+    let cfg: Config
+    do { cfg = try Config.load() } catch { fail("\(error)") }
+    guard let def = cfg.pickers[args[1]] else { fail("no picker '\(args[1])' — known: \(cfg.pickers.keys.sorted().joined(separator: ", "))") }
+    let items = def.resolveItems(config: cfg)
+    if args.count > 2 {
+        let q = args.dropFirst(2).joined(separator: " ")
+        let ranked = PickerSearch.rank(items, q)
+        let pick = PickerSearch.confident(ranked)
+        for (it, sc) in ranked.prefix(10) { out("\(String(format: "%4d", sc))  \(it.label)\(it.value == pick?.value ? "   ← taken" : "")") }
+        if ranked.isEmpty { out("no match for “\(q)”") }
+    } else {
+        for it in items { out(it.label) }
+        out("— \(items.count) items")
+    }
+
 case "drums":
     // why no drum sound? padctl's side (map, bank) + padbeat's own report (audio engine, MIDI, hits)
     out(jsonString(appRequest(["cmd": "drums"])))

@@ -12,7 +12,8 @@
 #   tmux = [...]   exec = ["prog", "arg"]   script = "name"   prompt = "name"   picker = "id"   seq = [ {...}, ... ]
 # extras: label, color (category or #hex), look, desc, confirm = "hold", hold = { <action> }, then = "<modal layer>",
 #         passthrough = "<key>", if = "<expression>", to = "app" | "pane",
-#         knobs: keys = { cw = "...", ccw = "..." } or cw = { <action> }, ccw = { <action> }
+#         knobs: keys = { cw = "...", ccw = "..." } or cw = { <action> }, ccw = { <action> }, step = 3 (turn units per move: less sensitive),
+#         with = { <held control> = { <action> } } (a combo: what this does while that control is held)
 # Inline tables { … } must stay on one line; for multi-step actions use a [padN] table with [[padN.seq]] steps.
 
 name  = "Default"
@@ -51,8 +52,8 @@ pad16 = { label = "Spotlight",  keys = "cmd+space", color = "skill" }
 # ── knobs ─────────────────────────────────────────────────────
 knob1 = { label = "↑ ↓",         keys = { cw = "down", ccw = "up" }, color = "nav", repeat = "accel" }
 knob2 = { label = "← →",         keys = { cw = "right", ccw = "left" }, color = "nav", repeat = "accel" }
-knob3 = { label = "Tabs",        keys = { cw = "ctrl+tab", ccw = "ctrl+shift+tab" }, color = "nav", sound = "nav" }
-knob4 = { label = "App windows", cw = { window = "next" }, ccw = { window = "prev" }, color = "nav", sound = "nav" }
+knob3 = { label = "Tabs", step = 3,        keys = { cw = "ctrl+tab", ccw = "ctrl+shift+tab" }, color = "nav", sound = "nav" }
+knob4 = { label = "App windows", step = 3, cw = { window = "next" }, ccw = { window = "prev" }, color = "nav", sound = "nav" }
 knob5 = { label = "Page ↑ ↓",    keys = { cw = "pagedown", ccw = "pageup" }, color = "nav" }
 knob6 = { label = "Zoom",        keys = { cw = "cmd+plus", ccw = "cmd+minus" }, color = "sys" }
 knob7 = { label = "Undo / Redo", keys = { cw = "cmd+shift+z", ccw = "cmd+z" }, color = "warn" }
@@ -80,5 +81,5 @@ pad15 = { label = "Bluetooth",    open = "x-apple.systempreferences:com.apple.Bl
 pad16 = { label = "Activity Mon", open = "Activity Monitor", color = "sys" }
 # KNOB BANK B: system knobs everywhere (knobs not set here keep their normal action)
 knob1 = { label = "Volume",      cw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) + 4)"] }, ccw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) - 4)"] }, color = "sys" }
-knob3 = { label = "Desktops",    keys = { cw = "ctrl+right", ccw = "ctrl+left" }, to = "app", color = "sys" }
-knob4 = { label = "App windows", cw = { window = "next" }, ccw = { window = "prev" }, to = "app", color = "nav" }
+knob3 = { label = "Desktops", step = 3,    keys = { cw = "ctrl+right", ccw = "ctrl+left" }, to = "app", color = "sys" }
+knob4 = { label = "App windows", step = 3, cw = { window = "next" }, ccw = { window = "prev" }, to = "app", color = "nav" }

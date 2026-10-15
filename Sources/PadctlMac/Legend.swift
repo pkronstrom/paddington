@@ -222,19 +222,22 @@ struct ButtonRow: View {
 
 struct PickerList: View {
     let p: PickerState
+    var m: PickerModel? = nil           // search lists: the search row's text lives here
     @Environment(\.legendScale) var k
     var body: some View {
-        let lo = max(0, min(p.index - 4, p.items.count - 9)), hi = min(p.items.count, lo + 9)
+        let sel = max(p.index, 0)
+        let lo = max(0, min(sel - 4, p.items.count - 9)), hi = min(p.items.count, lo + 9)
         VStack(alignment: .leading, spacing: 2 * k) {
-            Text(p.title).font(.system(size: 10.5 * k, weight: .bold)).foregroundStyle(.white.opacity(0.7))
+            let heading: String = p.searching ? "\(p.title) · \(p.items.count) \(p.query.isEmpty ? "in all" : "found")" : p.title
+            Text(heading)
+                .font(.system(size: 10.5 * k, weight: .bold)).foregroundStyle(.white.opacity(0.7))
+            if p.searching, let m { SearchRow(m: m, active: p.index < 0) }
             ForEach(lo..<hi, id: \.self) { i in
-                Text(p.items[i].label).font(.system(size: 11.5 * k, weight: i == p.index ? .bold : .regular)).lineLimit(1)
-                    .padding(.horizontal, 5 * k).padding(.vertical, 1.5 * k)
-                    .frame(width: 160 * k, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 4 * k).fill(i == p.index ? Color.white.opacity(0.9) : .clear))
-                    .foregroundStyle(i == p.index ? Color.black : Color.white.opacity(0.85))
+                PickerRow(label: p.items[i].label, on: i == p.index,
+                          next: p.searching && p.index < 0 && i == 0)      // what ▶ takes from the search row
             }
-            Text("turn · ▶ choose · ⏸ cancel").font(.system(size: 9 * k)).foregroundStyle(.white.opacity(0.5))
+            Text(p.searching ? "say or type · turn to browse · ▶ take · ⏸ cancel" : "turn · ▶ choose · ⏸ cancel")
+                .font(.system(size: 9 * k)).foregroundStyle(.white.opacity(0.5))
         }
         .padding(7 * k)
         .background(RoundedRectangle(cornerRadius: 8 * k).fill(Color.white.opacity(0.06)))
@@ -324,7 +327,9 @@ public final class FloatingPanel<Content: View>: NSPanel {
         let host = NSHostingView(rootView: content())
         contentView = host
     }
-    public override var canBecomeKey: Bool { false }
+    /// A search list takes typing — as a non-activating panel, without taking focus from the terminal app.
+    public var acceptsKeys = false
+    public override var canBecomeKey: Bool { acceptsKeys }
     public override var canBecomeMain: Bool { false }
 
     public func place(_ position: String, margin: CGFloat = 24) {
@@ -364,14 +369,74 @@ struct ToastView: View {
 public final class PickerModel: ObservableObject {
     @Published public var picker: PickerState?
     @Published public var scale: CGFloat = 1
+    /// The search row (search lists): text, and who to tell about edits (text, characters added — a paste or
+    /// dictation adds many at once), Enter and Esc.
+    @Published public var typed = ""
+    @Published public var focusRequest = 0
+    var lastTyped = ""
+    var dictated = false
+    public var onType: ((String, Int) -> Void)?
+    public var onSubmit: (() -> Void)?
+    public var onCancel: (() -> Void)?
     public init() {}
+
+    func edited(_ t: String) {
+        let added = dictated ? t.count : t.count - lastTyped.count
+        dictated = false; lastTyped = t
+        onType?(t, added)
+    }
+}
+
+struct PickerRow: View {
+    let label: String
+    let on: Bool
+    let next: Bool
+    @Environment(\.legendScale) var k
+    var body: some View {
+        let text: String = next ? "↵ " + label : label
+        let weight: Font.Weight = on || next ? .bold : .regular
+        let fill: Color = on ? Color.white.opacity(0.9) : .clear
+        let edge: Color = next ? Color.white.opacity(0.5) : .clear
+        let ink: Color = on ? .black : Color.white.opacity(0.85)
+        return Text(text).font(.system(size: 11.5 * k, weight: weight)).lineLimit(1)
+            .padding(.horizontal, 5 * k).padding(.vertical, 1.5 * k)
+            .frame(width: 190 * k, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 4 * k).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 4 * k).strokeBorder(edge, lineWidth: 1))
+            .foregroundStyle(ink)
+    }
+}
+
+/// The search row at the top of a search list: highlighted (white) until a knob moves into the results.
+struct SearchRow: View {
+    @ObservedObject var m: PickerModel
+    let active: Bool
+    @FocusState private var focused: Bool
+    @Environment(\.legendScale) var k
+    var body: some View {
+        HStack(spacing: 4 * k) {
+            Image(systemName: "magnifyingglass").font(.system(size: 10 * k, weight: .bold))
+            TextField("say or type…", text: $m.typed)
+                .textFieldStyle(.plain).font(.system(size: 12 * k, weight: .semibold))
+                .focused($focused)
+                .onSubmit { m.onSubmit?() }
+                .onExitCommand { m.onCancel?() }
+        }
+        .padding(.horizontal, 5 * k).padding(.vertical, 3 * k)
+        .frame(width: 190 * k, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 4 * k).fill(active ? Color.white.opacity(0.9) : Color.white.opacity(0.12)))
+        .foregroundStyle(active ? Color.black : Color.white.opacity(0.85))
+        .onChange(of: m.typed) { _, t in m.edited(t) }
+        .onChange(of: m.focusRequest) { _, _ in focused = true }
+        .onAppear { DispatchQueue.main.async { focused = true } }
+    }
 }
 
 struct PickerOverlay: View {
     @ObservedObject var m: PickerModel
     var body: some View {
         if let p = m.picker {
-            PickerList(p: p)
+            PickerList(p: p, m: m)
                 .background(RoundedRectangle(cornerRadius: 9 * m.scale).fill(Color(white: 0.07).opacity(0.95)))
                 .overlay(RoundedRectangle(cornerRadius: 9 * m.scale).strokeBorder(Color.white.opacity(0.25), lineWidth: 1.5))
                 .environment(\.legendScale, m.scale)
@@ -437,6 +502,35 @@ public final class LegendController {
         } else {
             panel.orderOut(nil)
         }
+    }
+
+    /// Search lists: the overlay's search row takes typing (and dictation) until `endSearch`.
+    public func beginSearch(onType: @escaping (String, Int) -> Void, onSubmit: @escaping () -> Void, onCancel: @escaping () -> Void) {
+        let m = pickerModel
+        m.onType = onType; m.onSubmit = onSubmit; m.onCancel = onCancel
+        m.lastTyped = ""; m.dictated = false; m.typed = ""
+        guard !headless else { return }
+        pickerPanel.acceptsKeys = true
+        pickerPanel.orderFrontRegardless()
+        pickerPanel.makeKey()
+        m.focusRequest += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            Log.write("search row: key=\(self.pickerPanel.isKeyWindow) (front app: \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"))")
+        }
+    }
+
+    /// Text that arrived from dictation (counts as one paste).
+    public func setSearchText(_ t: String) {
+        pickerModel.dictated = true
+        pickerModel.typed = t
+    }
+
+    public func endSearch() {
+        let m = pickerModel
+        m.onType = nil; m.onSubmit = nil; m.onCancel = nil
+        pickerPanel.acceptsKeys = false
+        if pickerPanel.isKeyWindow { pickerPanel.resignKey() }
     }
 
     /// Small list overlay for pickers, separate from the legend.

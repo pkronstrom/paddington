@@ -2,7 +2,9 @@
 
 [skills]
 title  = "Skill"
-source = "claude-skills"           # ~/.claude/skills and ~/.claude/commands
+# active skills (~/.claude/skills, ~/.claude/commands), then the skill vault (◇ → /vault-skills <path>)
+# and the MCP vault (⧉ → /vault-mcp use <name>). Search it by voice: hold ● and press Skills… (or hold Skills…).
+source = ["claude-skills", "skill-vault", "mcp-vault"]
 pin    = ["rev", "work", "handoff", "pr", "simplify", "whats-next", "bb"]
 run    = { text = "/{item} " }     # trailing space: dictate arguments, then ▶
 
@@ -32,5 +34,7 @@ run   = { mode = "{item}" }
 
 [prompts]
 title  = "Prompt"
+# Markdown files in ~/.config/padctl/prompts/ (shared by Claude and Codex) and <ruleset>/prompts/:
+# optional front matter `label: …`, then the text. It's pasted without Enter so you can edit it first.
 source = "prompts"
 run    = { prompt = "{item}" }

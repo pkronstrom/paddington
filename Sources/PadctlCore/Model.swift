@@ -59,12 +59,13 @@ public indirect enum Action: Equatable {
     case seq([Action])
     case legend(String)             // show (while held) | pin
     case picker(String)             // open a picker (knob scrolls, ▶ commits, ⏸ cancels)
+    case search(String)             // open a picker with a search box: type or dictate (hold ●) to filter
     case answer(Int)                // pick option N of the agent's question
     case window(String)             // next | prev window of the frontmost app (Accessibility, layout-independent)
     case input(String, Action)      // ask for text (dictate with ●), then run the action with {input}
 
     static let keysNames = ["keys", "text", "tmux", "exec", "open", "shortcut", "menu", "script", "prompt",
-                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input"]
+                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input", "search"]
 
     /// Parse the single action key present in a binding table. Returns nil if none.
     public static func parse(_ t: [String: Value], ctx: String) throws -> Action? {
@@ -112,6 +113,7 @@ public indirect enum Action: Equatable {
             return .setState(key, val)
         case "toast": return .toast(try str())
         case "picker": return .picker(try str())
+        case "search": return .search(try str())
         case "input":
             guard let rt = t["run"]?.table, let then = try Action.parse(rt, ctx: "\(ctx).run") else {
                 throw ExprError("\(ctx): input needs run = { <action using {input}> }")
@@ -198,10 +200,12 @@ public struct Binding: Equatable {
     public var condition: Expr?          // binding only applies while this is true
     public var sound: String?            // sound name ("" = silent); default comes from the colour category
     public var holdTime: Double?         // seconds before `hold` fires (default: timing.hold)
+    public var with: [String: Action] = [:]   // chords: while control X is held, this press runs with[X] instead
+    public var step = 1                  // knobs: turn units per move (higher = less sensitive)
     public var whenEmpty: [Binding] = [] // window pads (win = N): the binding used while window N doesn't exist (0 or 1)
 
     static let reserved: Set<String> = ["label", "color", "look", "hold", "confirm", "passthrough", "cw", "ccw",
-                                        "repeat", "to", "activate", "timeout", "desc", "win", "then", "then_steps", "if", "sound", "hold_time", "empty"]
+                                        "repeat", "to", "activate", "timeout", "desc", "win", "then", "then_steps", "if", "sound", "hold_time", "empty", "with", "step"]
 
     /// An empty binding (used to run picker commits through the normal planner).
     public static func parseBare() -> Binding {
@@ -218,6 +222,13 @@ public struct Binding: Equatable {
         b.then = t["then"]?.string
         b.sound = t["sound"]?.string
         b.holdTime = t["hold_time"].flatMap(parseDuration)
+        b.step = max(1, t["step"]?.int ?? 1)
+        for (held, v) in t["with"]?.table ?? [:] {
+            guard let at = v.table, let a = try Action.parse(at, ctx: "\(ctx).with.\(held)") else {
+                throw ExprError("\(ctx): with.\(held) must be { <action> }")
+            }
+            b.with[held] = a
+        }
         b.thenSteps = t["then_steps"]?.int ?? 1
         if let c = t["if"]?.string { b.condition = try Expr.parse(c) }
         if let w = t["win"] { b.params["win"] = w }
@@ -334,6 +345,7 @@ public struct Settings {
     public var colors: [String: String] = Settings.defaultColors
     public var holdMs: Double = 450
     public var confirmHoldMs: Double = 1000
+    public var legendHoldMs: Double = 250    // hold ▶ this long to show the legend (shorter than other holds)
     public var legendPinSeconds: Double = 8
     public var passthroughLimitSeconds: Double = 300
     public var legendPosition: String = "bottom-right"
@@ -389,6 +401,7 @@ public struct Settings {
         let tm = t["timing"]?.table ?? [:]
         if let v = tm["hold"].flatMap(parseDuration) { s.holdMs = v * 1000 }
         if let v = tm["confirm_hold"].flatMap(parseDuration) { s.confirmHoldMs = v * 1000 }
+        if let v = tm["legend_hold"].flatMap(parseDuration) { s.legendHoldMs = v * 1000 }
         if let v = tm["legend_pin"].flatMap(parseDuration) { s.legendPinSeconds = v }
         if let v = tm["passthrough_limit"].flatMap(parseDuration) { s.passthroughLimitSeconds = v }
         if let l = t["led"]?.table {
