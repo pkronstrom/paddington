@@ -67,10 +67,11 @@ public indirect enum Action: Equatable {
     case app(String)                // bring an app to the front (launch it if needed); in front already: its next window
     case focusWindow(String)        // one window of any app (the window list's items: "pid␟index␟title")
     case pressButton([String])      // press the front app's button with one of these names (things without a shortcut)
+    case tab(String)                // next | prev browser tab, wrapping around at the ends
     case input(String, Action)      // ask for text (dictate with ●), then run the action with {input}
 
     static let keysNames = ["keys", "text", "tmux", "exec", "open", "shortcut", "menu", "script", "prompt",
-                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input", "search", "decide", "app", "focus_window", "press"]
+                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input", "search", "decide", "app", "focus_window", "press", "tab"]
 
     /// Parse the single action key present in a binding table. Returns nil if none.
     public static func parse(_ t: [String: Value], ctx: String) throws -> Action? {
@@ -126,6 +127,10 @@ public indirect enum Action: Equatable {
             return .input(try str(), then)
         case "app": return .app(try str())
         case "focus_window": return .focusWindow(try str())
+        case "tab":
+            let s = try str()
+            guard s == "next" || s == "prev" else { throw ExprError("\(ctx): tab must be \"next\" or \"prev\"") }
+            return .tab(s)
         case "press":
             // one name or a list of alternatives ("Turn On Camera" / "Turn Off Camera"): the first one found is pressed
             guard let names = v.string.map({ [$0] }) ?? v.stringList, !names.isEmpty else { throw ExprError("\(ctx): press must be a button name or a list of names") }
@@ -221,7 +226,7 @@ public struct Binding: Equatable {
     public var whenEmpty: [Binding] = [] // window pads (win = N): the binding used while window N doesn't exist (0 or 1)
 
     static let reserved: Set<String> = ["label", "color", "look", "hold", "confirm", "passthrough", "cw", "ccw",
-                                        "repeat", "to", "activate", "timeout", "desc", "win", "then", "then_steps", "if", "sound", "hold_time", "empty", "with", "step"]
+                                        "repeat", "to", "activate", "timeout", "desc", "win", "then", "then_steps", "if", "sound", "hold_time", "empty", "with", "step", "slot"]
 
     /// An empty binding (used to run picker commits through the normal planner).
     public static func parseBare() -> Binding {
@@ -248,6 +253,7 @@ public struct Binding: Equatable {
         b.thenSteps = t["then_steps"]?.int ?? 1
         if let c = t["if"]?.string { b.condition = try Expr.parse(c) }
         if let w = t["win"] { b.params["win"] = w }
+        if let n = t["slot"] { b.params["slot"] = n }          // the Agents overview's pad N
         if let e = t["empty"] {
             guard t["win"] != nil else { throw ExprError("\(ctx): empty = { … } needs win = N") }
             b.whenEmpty = [try Binding.parse(e, ctx: "\(ctx).empty")]
@@ -314,10 +320,11 @@ public struct Layer {
     public var steps = 1
     public var timeout: Double?
     public var exclusive = false         // modal: controls it doesn't bind do nothing (and stay dark)
+    public var showsLegend = false       // legend = true: a status display — the legend is up while the layer is on
 }
 
 extension Layer {
-    static let reservedKeys: Set<String> = ["name", "kind", "color", "extends", "priority", "when", "shift", "looks", "agent", "id", "auto", "exit", "steps", "timeout", "cancel", "exclusive"]
+    static let reservedKeys: Set<String> = ["name", "kind", "color", "extends", "priority", "when", "shift", "looks", "agent", "id", "auto", "exit", "steps", "timeout", "cancel", "exclusive", "legend"]
 
     public static func parse(_ t: [String: Value], id: String, dir: URL, file: String) throws -> Layer {
         func err(_ m: String) -> ConfigError { ConfigError(file: file, m) }
@@ -351,6 +358,7 @@ extension Layer {
         l.steps = t["steps"]?.int ?? 1
         l.timeout = t["timeout"].flatMap(parseDuration)
         l.exclusive = t["exclusive"]?.bool ?? false
+        l.showsLegend = t["legend"]?.bool ?? false
         return l
     }
 }
@@ -399,6 +407,8 @@ public struct Settings {
         "ok": "", "warn": "", "voice": "",
         "new": "Hero", "mode": "Purr", "picker": "Morse", "select": "Pop", "error": "Funk",
         "scroll": "tick@0.5", "cancel": "Blow",
+        // an agent starts waiting for you, or errors (menu › Agent sounds, or the Agents pad layer, mutes them)
+        "agent_asks": "Ping@0.5", "agent_approve": "Submarine@0.5", "agent_done": "Glass@0.4", "agent_error": "Funk@0.5",
     ]
 
     public static let defaultColors = [

@@ -3,8 +3,9 @@
 # Layout grammar — the same spot means the same kind of thing in every ruleset:
 #   knobs  row 1 (1, 2)  move inside: ↑↓ · ←→          row 2 (3, 4)  switch: windows/tabs · panes/app windows
 #          row 3 (5, 6)  view: scroll · zoom          row 4 (7, 8)  settings: model · thinking (agents)
-#   pads   rows 1–2 (1–8) slots / targets   row 3 (9–12) lifecycle: new … close   row 4 (13–16) this app's verbs
-#   buttons  < iTerm window (show/hide, every app) · > next window or tab · ▶ Enter (hold: legend) · ⏸ Esc · ● Talk
+#   pads   rows 1–2 (1–8) slots / targets   row 3 (9–12) this app's verbs
+#          row 4 (13–16) lists and tools, then 15 New · 16 Close — the same two spots in every ruleset
+#   buttons  < iTerm window (show/hide, every app; hold: Agents overview) · > next window or tab · ▶ Enter (hold: legend) · ⏸ Esc · ● Talk
 #   PAD BANK B = the pads' [shift] bindings · KNOB BANK B = the knobs' [shift] bindings (system knobs, set here)
 #
 # Binding = one action plus optional extras:
@@ -23,7 +24,7 @@ color = "#868e96"
 # ── buttons ───────────────────────────────────────────────────
 # < is the same everywhere: iTerm's hotkey window (⌃<, set in iTerm › Settings › Keys › Hotkey). Rulesets don't
 # override it; previous window/tab is on knob 3 (lists and menus still use < > to move).
-left  = { label = "iTerm", keys = "ctrl+<", to = "app", color = "sys", desc = "show / hide the iTerm hotkey window (⌃<)" }
+left  = { label = "iTerm", keys = "ctrl+<", to = "app", hold = { layer = "agents", activate = "modal" }, color = "sys", desc = "tap: show / hide the iTerm hotkey window (⌃<) · hold: the Agents overview" }
 right = { label = "Next tab", keys = "ctrl+tab", color = "nav" }
 play  = { label = "Enter",    keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
 pause = { label = "Esc",      keys = "esc", color = "warn", desc = "Esc on press" }
@@ -39,17 +40,17 @@ pad6  = { label = "Select all", keys = "cmd+a" }
 pad7  = { label = "Find",       keys = "cmd+f" }
 pad8  = { label = "Save",       keys = "cmd+s", color = "ok" }
 
-# ── row 3: lifecycle ──────────────────────────────────────────
+# ── row 3: windows and view ───────────────────────────────────
 pad9  = { label = "Next window", window = "next", color = "nav" }
 pad10 = { label = "New tab",     keys = "cmd+t", color = "new" }
-pad11 = { label = "New",         keys = "cmd+n", color = "new" }
-pad12 = { label = "Close",       keys = "cmd+w", color = "danger", hold = { keys = "cmd+q" }, hold_time = "2s", desc = "tap: close tab/window (⌘W) · hold 2 s: quit the app (⌘Q)" }
+pad11 = { label = "Fullscreen",  keys = "ctrl+cmd+f", color = "sys" }
+pad12 = { label = "Emoji",       keys = "ctrl+cmd+space" }
 
-# ── row 4: utilities ──────────────────────────────────────────
+# ── row 4: tools, then New · Close ────────────────────────────
 pad13 = { label = "Screenshot", keys = "cmd+shift+4", color = "sys" }
-pad14 = { label = "Emoji",      keys = "ctrl+cmd+space" }
-pad15 = { label = "Fullscreen", keys = "ctrl+cmd+f", color = "sys" }
-pad16 = { label = "Spotlight",  keys = "cmd+space", color = "skill" }
+pad14 = { label = "Spotlight",  keys = "cmd+space", color = "skill" }
+pad15 = { label = "New",        keys = "cmd+n", color = "new" }
+pad16 = { label = "Close",      keys = "cmd+w", color = "danger", hold = { keys = "cmd+q" }, hold_time = "2s", desc = "tap: close tab/window (⌘W) · hold 2 s: quit the app (⌘Q)" }
 
 # ── knobs ─────────────────────────────────────────────────────
 knob1 = { label = "↑ ↓",         keys = { cw = "down", ccw = "up" }, color = "nav", repeat = "accel" }

@@ -1,0 +1,30 @@
+# The Agents overview (hold < in any app): every Claude / Codex agent on one pad each, the ones waiting for you
+# first — questions and approvals, then finished-but-unseen (they blink), then errors, working, idle. Colour =
+# status, label = window · project folder, note = agent + status. Tap one: iTerm comes forward on that agent.
+# ⏸ or < closes. Pad 12 mutes / unmutes the agent sounds (also in the menu bar menu). Row 4 stays your normal
+# one (Skills… · Prompts… · New · Close in agent panes). The legend shows while it's on, so the labels can be read.
+name      = "Agents"
+kind      = "modal"
+color     = "#22b8cf"
+legend    = true          # a status display: the legend shows while it's on
+timeout   = "20s"
+exit      = ["pad1", "pad2", "pad3", "pad4", "pad5", "pad6", "pad7", "pad8", "pad9", "pad10", "pad11"]
+pad1  = { label = "{agents.slot.1.label}", agent = "slot 1", look = "agent_slot", slot = 1, color = "nav", sound = "nav" }
+pad2  = { label = "{agents.slot.2.label}", agent = "slot 2", look = "agent_slot", slot = 2, color = "nav", sound = "nav" }
+pad3  = { label = "{agents.slot.3.label}", agent = "slot 3", look = "agent_slot", slot = 3, color = "nav", sound = "nav" }
+pad4  = { label = "{agents.slot.4.label}", agent = "slot 4", look = "agent_slot", slot = 4, color = "nav", sound = "nav" }
+pad5  = { label = "{agents.slot.5.label}", agent = "slot 5", look = "agent_slot", slot = 5, color = "nav", sound = "nav" }
+pad6  = { label = "{agents.slot.6.label}", agent = "slot 6", look = "agent_slot", slot = 6, color = "nav", sound = "nav" }
+pad7  = { label = "{agents.slot.7.label}", agent = "slot 7", look = "agent_slot", slot = 7, color = "nav", sound = "nav" }
+pad8  = { label = "{agents.slot.8.label}", agent = "slot 8", look = "agent_slot", slot = 8, color = "nav", sound = "nav" }
+pad9  = { label = "{agents.slot.9.label}", agent = "slot 9", look = "agent_slot", slot = 9, color = "nav", sound = "nav" }
+pad10 = { label = "{agents.slot.10.label}", agent = "slot 10", look = "agent_slot", slot = 10, color = "nav", sound = "nav" }
+pad11 = { label = "{agents.slot.11.label}", agent = "slot 11", look = "agent_slot", slot = 11, color = "nav", sound = "nav" }
+
+pad12 = { label = "Sounds", set = { "@sounds.agents" = "toggle" }, look = "sounds", color = "ok", desc = "agent sounds on / off (asks · approve? · done · error)" }
+left  = { label = "✕ Close", layer = "agents", activate = "toggle", color = "danger" }
+pause = { label = "✕ Close", layer = "agents", activate = "toggle", color = "danger" }
+
+[looks.sounds]
+# on: green · muted: red
+rules = [ { if = "sounds.agents", color = "ok", label = "🔔 Sounds on" }, { color = "danger", label = "🔕 Sounds muted" } ]

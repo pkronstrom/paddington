@@ -302,6 +302,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         var s = Snapshot.build(context: context, agents: agents, custom: custom, layerPath: engine?.layerPath(context, now: now) ?? "")
         // what's on screen wins over the hook payload: it has Claude's own extra options ("Type something") too
         if let sc = screenChoices { for (k, v) in sc.vars { s.values[k] = v } }
+        s.values["sounds.agents"] = .bool(agentSounds)
         return s
     }
 
@@ -501,6 +502,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     func setState(_ k: String, _ v: Value) {
         if k == "@agent.reset", let p = v.string { agents.reset(pane: p, now: now) }
+        else if k == "@sounds.agents" { toggleAgentSounds() }
         else if v.isNull { custom[k] = nil } else { custom[k] = v }
         render()
     }
@@ -513,6 +515,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             rebuildMenu()
             return
         }
+        playAgentSounds(cfg.settings)
         let snap = snapshot()
         // the search picker ended elsewhere (a pad chose, ⏸, timeout): close its search box too
         if searchOpen, e.picker?.searching != true {
@@ -542,8 +545,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         m.frameStyle = modal ? .modal : (e.shiftHeld ? .held : (stack.count > 1 ? .temporary : .base))
         legend.showPicker(e.picker)
         // menus, questions and confirmations don't pop the legend up: the pads light and label themselves
-        // (hold ▶ to see it)
-        if legend.forced { legend.forced = false; legend.update() }
+        // (hold ▶ to see it). Status displays do (legend = true, e.g. the Agents overview): up while they're on.
+        let statusDisplay = stack.contains { $0.showsLegend }
+        if legend.forced != statusDisplay { legend.forced = statusDisplay; legend.update() }
         let connected = padSourcePresent
         m.connected = connected
         var conn = connected ? cfg.device.name : (ble?.status ?? "not connected")
@@ -643,7 +647,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var menuSignature = ""
     func rebuildMenu() {
         let path = engine?.layerPath(context, now: now) ?? "-"
-        let sig = "\(path)|\(lastError ?? "")|\(paused)|\(padSourcePresent)|\(ble?.status ?? "")|\(AXIsProcessTrusted())|\(Self.loginAgent.status.rawValue)|\(leds.status)|\(ledNight)"
+        let sig = "\(path)|\(lastError ?? "")|\(paused)|\(padSourcePresent)|\(ble?.status ?? "")|\(AXIsProcessTrusted())|\(Self.loginAgent.status.rawValue)|\(leds.status)|\(ledNight)|\(agentSounds)"
         guard sig != menuSignature else { return }
         menuSignature = sig
         let menu = NSMenu()
@@ -672,6 +676,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         night.target = self
         night.state = ledNight ? .on : .off
         menu.addItem(night)
+        let sounds = NSMenuItem(title: "Agent sounds (asks · approve? · done · error)", action: #selector(toggleAgentSounds), keyEquivalent: "")
+        sounds.target = self
+        sounds.state = agentSounds ? .on : .off
+        menu.addItem(sounds)
         menu.addItem(.separator())
         item("Quit padctl", #selector(quit), "q")
         statusItem.menu = menu
@@ -698,6 +706,36 @@ public final class AppController: NSObject, NSApplicationDelegate {
         get { UserDefaults.standard.bool(forKey: "ledNight") }
         set { UserDefaults.standard.set(newValue, forKey: "ledNight") }
     }
+    /// Agent sounds: a short cue when an agent starts waiting for you or errors. On unless muted; remembered.
+    var agentSounds: Bool {
+        get { UserDefaults.standard.object(forKey: "agentSounds") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "agentSounds") }
+    }
+    @objc func toggleAgentSounds() {
+        agentSounds.toggle()
+        legend.toast(agentSounds ? "Agent sounds on" : "Agent sounds muted")
+        menuSignature = ""
+        render()
+    }
+
+    /// Each agent's last status, so a change into asks / approve? / done / error plays its sound once.
+    var lastAgentStatus: [String: AgentStatus] = [:]
+    func playAgentSounds(_ settings: Settings) {
+        let current = agents.agents.mapValues(\.status)
+        defer { lastAgentStatus = current }
+        guard agentSounds, !paused, !testMode else { return }
+        let keys: [AgentStatus: String] = [.needs_input: "agent_asks", .needs_approval: "agent_approve",
+                                           .done_unread: "agent_done", .error: "agent_error"]
+        // the pane you're looking at needs no sound; the most urgent change wins when several happen at once
+        let changed = agents.agents.values.filter { a in
+            a.status != lastAgentStatus[a.sessionId] && keys[a.status] != nil
+                && !(context.app == ITerm.bundleId && a.pane == context.focusedPane?.paneId)
+        }
+        guard let top = changed.max(by: { $0.status.urgency < $1.status.urgency }), let key = keys[top.status] else { return }
+        Log.write("agent sound: \(key) (\(top.pane))")
+        sounds.play(key, settings: settings)
+    }
+
     @objc func toggleNight() {
         ledNight.toggle()
         legend.toast(ledNight ? "Pad lights dimmed (night)" : "Pad lights bright (day)")

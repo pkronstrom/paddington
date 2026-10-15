@@ -24,6 +24,7 @@ public enum PlanStep: Equatable {
     case openApp(String)                          // bring to front / launch, like a Dock click (bundle id or name)
     case focusWindow(String)                      // a window of any app ("pid␟index␟title")
     case pressButton([String])                    // the front app's button by name (Accessibility)
+    case cycleTab(next: Bool)                     // browser tabs, wrapping at the ends
 }
 
 public struct Plan: Equatable {
@@ -78,7 +79,7 @@ public struct StackEntry: Equatable {
 // MARK: - Built-in looks
 
 public enum Looks {
-    public static let builtins: Set<String> = ["agent_status", "waiting", "agent_working", "agent_mode", "current_window", "context_meter", "attention", "choice"]
+    public static let builtins: Set<String> = ["agent_status", "waiting", "agent_working", "agent_mode", "current_window", "context_meter", "attention", "choice", "agent_slot"]
 
     /// Context fill → colour key: below 50 % calm, 50–80 % warn, above 80 % danger. Unknown: the binding's own colour.
     static func contextKey(_ snap: Snapshot) -> String? {
@@ -101,6 +102,7 @@ public enum Looks {
         case "context_meter": return contextKey(snapshot) ?? binding.color
         case "attention": return binding.color
         case "choice": return choiceKey(binding, snapshot)
+        case "agent_slot": return binding.params["slot"]?.int.flatMap { snapshot["agents.slot.\($0).status"].string } ?? "off"
         default: return nil
         }
     }
@@ -116,7 +118,7 @@ public enum Looks {
             guard let s = snapshot[key].string.flatMap(AgentStatus.init(rawValue:)) else {
                 return (settings.color(binding.color) ?? settings.color("nav"), false, nil)
             }
-            return (settings.color(s.rawValue), s.waiting, nil)
+            return (settings.color(s.rawValue), s.wantsYou, nil)     // asks, approve? and done-but-unseen blink
         case "waiting":
             let n = snapshot["agents.waiting"].number ?? 0
             return n > 0 ? (settings.color("needs_input"), true, nil) : (settings.color("off"), false, nil)
@@ -133,6 +135,11 @@ public enum Looks {
         case "choice":
             let k = choiceKey(binding, snapshot)
             return (settings.color(k), k == "ok" && !settings.reducedMotion, nil)
+        case "agent_slot":       // the Agents overview: status colour; the ones waiting for you blink
+            guard let n = binding.params["slot"]?.int, let s = snapshot["agents.slot.\(n).status"].string.flatMap(AgentStatus.init(rawValue:)) else {
+                return (settings.color("off"), false, nil)
+            }
+            return (settings.color(s.rawValue), s.wantsYou && !settings.reducedMotion, nil)
         case "context_meter":
             guard let key = contextKey(snapshot), let c = snapshot["agent.context"].number else { return nil }
             return (settings.color(key), false, "\(binding.label ?? "Compact") \(Int(c))%")   // blinking = an agent waits for you
@@ -342,7 +349,7 @@ public final class Engine {
             presses[c] = Press(binding: b2, layer: l2, down: now, fired: false, role: nil)
         }
         presses[c] = presses[c] ?? Press(binding: b, layer: l, down: now, fired: false, role: nil)
-        if b.confirmAsk, let a = b.action {
+        if b.confirmAsk, b.hold == nil, let a = b.action {     // with a hold: asks on release (a tap), below
             presses[c]?.fired = true
             return askConfirm(PendingConfirm(action: a, binding: b, layer: l, control: c,
                                              label: b.label.map { interpolate($0, snap.lookup) } ?? defaultLabel(b, layer: l), vars: [:]), now: now)
@@ -382,6 +389,10 @@ public final class Engine {
         }
         guard !p.fired, let b = p.binding, let l = p.layer else { return [] }
         if b.confirmHold { return [.plan(Plan(steps: [.toast("Hold to confirm")], pane: nil, agentSession: nil, label: "cancel"))] }
+        if b.confirmAsk, let a = b.action {
+            return askConfirm(PendingConfirm(action: a, binding: b, layer: l, control: c,
+                                             label: b.label.map { interpolate($0, snap.lookup) } ?? defaultLabel(b, layer: l), vars: [:]), now: now)
+        }
         return fire(b.action, binding: b, layer: l, control: c, now: now, ctx: ctx, snap: snap)
     }
 
@@ -583,6 +594,7 @@ public final class Engine {
         }
         // a question's pad past its last option: grey, does nothing (no sound either)
         if case .answer(let n) = action, n > (snap["q.count"].int ?? Int.max) { return [] }
+        if case .agent(let s) = action, s.hasPrefix("slot "), let n = Int(s.dropFirst(5)), n > (snap["agents.count"].int ?? Int.max) { return [] }
         var out: [EngineOutput] = []
         let useTmux = (binding.target ?? (chain(layer).contains { $0.when?.usesTmux ?? false } ? .pane : .app)) == .pane
         let pane = useTmux ? ctx.focusedPane : nil
@@ -685,7 +697,11 @@ public final class Engine {
             switch what {
             case "next_waiting":
                 guard let target = snap["agents.oldest_waiting"].string else { steps.append(.toast("No agent is waiting")); return }
-                steps.append(.focusPane(target))
+                steps += Engine.goToPane(target, ctx: ctx)
+            case let s where s.hasPrefix("slot "):
+                // the Agents overview: jump to the agent on that pad (iTerm comes to the front first)
+                guard let n = Int(s.dropFirst(5)), let target = snap["agents.slot.\(n).pane"].string else { return }
+                steps += Engine.goToPane(target, ctx: ctx)
             case "reset":
                 if let p = pane ?? ctx.focusedPane { steps.append(.setState("@agent.reset", .string(p.paneId))) }
             default: steps.append(.toast("Unknown agent action '\(what)'"))
@@ -728,6 +744,7 @@ public final class Engine {
         case .window(let dir): steps.append(.cycleWindow(next: dir == "next"))
         case .focusWindow(let w): steps.append(.focusWindow(interpolate(w, v)))
         case .pressButton(let names): steps.append(.pressButton(names))
+        case .tab(let dir): steps.append(.cycleTab(next: dir == "next"))
         case .app(let raw):
             // "previous": the app in front before this one — a quick way back and forth
             let name = raw == "previous" ? (ctx.previousApp?.bundleId ?? "") : interpolate(raw, v)
@@ -773,6 +790,13 @@ public final class Engine {
         case .seq(let items):
             for i in items { plan(i, into: &steps, out: &out, layer: layer, control: control, now: now, ctx: ctx, snap: snap, pane: pane) }
         }
+    }
+
+    /// Show an agent's pane: bring iTerm forward when another app is in front (a Dock click — your hotkey window
+    /// appears), then switch tmux to the pane.
+    static func goToPane(_ pane: String, ctx: Context) -> [PlanStep] {
+        let iterm = "com.googlecode.iterm2"
+        return (ctx.app == iterm ? [] : [.openApp(iterm), .wait(0.2)]) + [.focusPane(pane)]
     }
 
     func merge(_ outs: [EngineOutput]) -> [EngineOutput] {
@@ -855,6 +879,13 @@ public final class Engine {
         if b.look == "choice", case .answer(let n)? = b.action, n > (snap["q.count"].int ?? 0) {
             a.label = ""; a.detail = "no option here"        // a short question: the rest of rows 1–2 stays grey
         }
+        if b.look == "agent_slot", let n = b.params["slot"]?.int {
+            if n > (snap["agents.count"].int ?? 0) { a.label = ""; a.detail = "no agent" }
+            else {
+                a.note = snap["agents.slot.\(n).note"].string ?? ""
+                if snap["agents.slot.\(n).pane"] == snap["pane"] { a.selected = true } else { a.windowSlot = true }
+            }
+        }
         if let w = b.params["win"]?.int {
             a.windowSlot = true
             if snap["window"].int == w { a.selected = true }
@@ -910,6 +941,7 @@ public final class Engine {
             case .answerRole(let r): return r == "no" ? "decline (Esc)" : (r == "always" ? "yes, and don't ask again" : "yes")
             case .decide(let ok): return ok ? "confirm" : "cancel"
             case .window(let d): return "\(d) window of this app"
+            case .tab(let d): return d == "next" ? "next tab (last → first)" : "previous tab (first → last)"
             case .pressButton(let n): return "press “\(n.joined(separator: "” / “"))”"
             case .focusWindow(let w): return "go to \(w.split(separator: "\u{1F}").last ?? "")"
             case .app(let n): return n == "previous" ? "back to the previous app" : "bring \(n) to the front (again: its next window)"

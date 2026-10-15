@@ -1,6 +1,6 @@
 # On top while a list is open (Sites…, Prompts…, Skills…, New…, Close…, the window list…). Only the middle
 # four pads are lit: left red ✕ closes the list (pads 6, 10), right green ✓ takes the highlighted item
-# (pads 7, 11) — pad 10 red / pad 11 green are the same spots as Confirm. Every other pad is off.
+# (pads 7, 11) — the same four as Confirm and Allow?. Every other pad is off.
 # Knobs and < > move, ▶ takes, ⏸ closes. ● Talk turns the list into a search (search row shown and focused)
 # and starts dictation: say what you want — a clear match is taken by itself, otherwise ✓ takes the top one.
 name      = "List"

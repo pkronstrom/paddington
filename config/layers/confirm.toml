@@ -1,17 +1,15 @@
-# Asks before a destructive action (bindings with confirm = "ask", lists with confirm = true):
-# pad 11 green ✓ runs it (blinks: waits for you), pad 10 and the whole top row red ✕ drop it; every other
-# pad is off. ▶ / ⏸ work too. Gives up after 8 s.
+# Asks before a destructive action (bindings with confirm = "ask", lists with confirm = true). Same as lists:
+# only the middle four pads are lit — left red ✕ drops it (pads 6, 10), right green ✓ runs it (pads 7, 11; they
+# blink: it waits for you). Every other pad is off. ▶ / ⏸ work too. Gives up after 8 s.
 name      = "Confirm"
 kind      = "modal"
 color     = "#fa5252"
 exclusive = true
 timeout   = "8s"
 
+pad6  = { label = "✕ Cancel", decide = "cancel", color = "danger" }
+pad7  = { label = "✓ {confirm.label}", decide = "ok", color = "ok", look = "attention" }
 pad10 = { label = "✕ Cancel", decide = "cancel", color = "danger" }
 pad11 = { label = "✓ {confirm.label}", decide = "ok", color = "ok", look = "attention" }
-pad13 = { label = "✕ Cancel", decide = "cancel", color = "danger" }
-pad14 = { label = "✕ Cancel", decide = "cancel", color = "danger" }
-pad15 = { label = "✕ Cancel", decide = "cancel", color = "danger" }
-pad16 = { label = "✕ Cancel", decide = "cancel", color = "danger" }
 play  = { label = "✓ OK", decide = "ok", color = "ok" }
 pause = { label = "✕ Cancel", decide = "cancel", color = "danger" }

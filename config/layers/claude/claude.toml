@@ -1,5 +1,6 @@
-# Claude Code ruleset: a tmux pane running `claude`. Rows 1–3, buttons and knobs 1–6 come from tmux.toml;
-# this file sets row 4 (agent verbs) and knobs 7–8 (model, thinking). Layout grammar: see default.toml.
+# Claude Code ruleset: a tmux pane running `claude`. Rows 1–2, buttons, knobs 1–6, Last window (12), New (15) and
+# Close (16) come from tmux.toml; this file sets the agent verbs (9–11, 13–14) and knobs 7–8 (model, thinking).
+# Layout grammar: see default.toml.
 # Agent status comes from `padctl hooks install` (observe-only Claude Code hooks).
 
 name    = "Claude Code"
@@ -11,18 +12,22 @@ when    = { app = ["com.googlecode.iterm2"], tmux_cmd = ["claude"] }
 play  = { label = "Submit", keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
 pause = { label = "Esc",    keys = "esc", look = "agent_working", desc = "Esc on press: once clears, twice interrupts · lit while the agent works" }
 
-# ── row 4: agent verbs — bank B pairs: Compact/clear · Rewind/resume · Prompts/Mode · Skills/handoff
-pad13 = { label = "Compact", text = "/compact\n", color = "act", look = "context_meter", desc = "/compact — colour shows context use: green < 50 %, yellow, red > 80 % (needs padctl statusline-tap)" }
-pad14 = { label = "Rewind",  text = "/rewind\n", then = "menu-nav", then_steps = 2, color = "act", desc = "/rewind — knob ↑↓, any pad selects (twice), ⏸ back" }
-pad15 = { label = "Prompts…", picker = "prompts", hold = { search = "prompts" }, with = { rec = { search = "prompts" } }, color = "skill", desc = "tap: list · hold, or press while holding ● Talk: search — type or say it, ▶ / Enter pastes it" }
-pad16 = { label = "Skills…", picker = "skills", hold = { search = "skills" }, with = { rec = { search = "skills" } }, color = "skill", desc = "tap: list (knob chooses) · hold, or press while holding ● Talk: search by voice — say the skill, release ●, it's typed in" }
+# ── row 3: Compact · ⇄ Pane · Rewind · (Last window) — bank B: /clear · Zoom · /resume
+pad9  = { label = "Compact", text = "/compact\n", color = "act", look = "context_meter", desc = "/compact — colour shows context use: green < 50 %, yellow, red > 80 % (needs padctl statusline-tap)" }
+pad10 = { label = "⇄ Pane",  tmux = ["select-pane", "-t", "{session}:.+"], color = "nav", desc = "jump between Claude and the shell beside it" }
+pad11 = { label = "Rewind",  text = "/rewind\n", then = "menu-nav", then_steps = 2, color = "act", desc = "/rewind — knob ↑↓, green ✓ selects (twice), red ✕ back" }
+
+# ── row 4: Skills… · Prompts… · (New · Close) — bank B: /handoff · Mode
+pad13 = { label = "Skills…", picker = "skills", hold = { search = "skills" }, with = { rec = { search = "skills" } }, color = "skill", desc = "tap: list (knob chooses) · hold, or press while holding ● Talk: search by voice — say the skill, release ●, it's typed in" }
+pad14 = { label = "Prompts…", picker = "prompts", hold = { search = "prompts" }, with = { rec = { search = "prompts" } }, color = "skill", desc = "tap: list · hold, or press while holding ● Talk: search — type or say it, ▶ / Enter pastes it" }
 
 # ── knobs 7–8: settings ───────────────────────────────────────
 knob7 = { label = "Model",    picker = "model", color = "act" }
 knob8 = { label = "Thinking", picker = "effort", color = "act" }
 
 [shift]
-pad13 = { label = "/clear",   text = "/clear\n", confirm = "ask", color = "danger" }
-pad14 = { label = "/resume",  text = "/resume\n", then = "menu-nav", color = "act" }
-pad15 = { label = "Mode",    mode = "next", look = "agent_mode", hold = { picker = "modes" }, desc = "tap: next mode · hold: pick a mode" }
-pad16 = { label = "/handoff", text = "/handoff\n", color = "skill" }
+pad9  = { label = "/clear",   text = "/clear\n", confirm = "ask", color = "danger" }
+pad10 = { label = "Zoom",     tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act", desc = "this pane fills the window; again to restore" }
+pad11 = { label = "/resume",  text = "/resume\n", then = "menu-nav", color = "act" }
+pad13 = { label = "/handoff", text = "/handoff\n", color = "skill" }
+pad14 = { label = "Mode",    mode = "next", look = "agent_mode", hold = { picker = "modes" }, desc = "tap: next mode · hold: pick a mode" }

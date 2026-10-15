@@ -102,6 +102,7 @@ public final class Executor {
             case .cycleWindow(let next): try Menu.cycleWindow(next: next)
             case .focusWindow(let id): try WindowList.focus(id)
             case .pressButton(let names): try Menu.pressButton(names)
+            case .cycleTab(let next): try Menu.cycleTab(next: next)
             case .openApp(let app):
                 // `open` sends a Dock click (reopen): a window appears even if the app had none — and iTerm shows
                 // its hotkey window. Bundle ids go by -b, names by -a.
@@ -174,6 +175,45 @@ public final class Executor {
 
 /// Click a menu item of the frontmost app through Accessibility.
 public enum Menu {
+    /// Next / previous browser tab that wraps around: on the last tab "next" goes to the first (⌘1), on the first
+    /// "previous" to the last (⌘9); otherwise ⌥⌘→ / ⌥⌘←. Where the selected tab is comes from the window's tab
+    /// strip (Accessibility); if it can't be read, plain ⌥⌘→ / ⌥⌘← (no wrap).
+    public static func cycleTab(next: Bool) throws {
+        var keys = next ? "cmd+alt+right" : "cmd+alt+left"
+        if let app = NSWorkspace.shared.frontmostApplication, let (sel, count) = selectedTab(pid: app.processIdentifier), count > 1 {
+            if next && sel == count - 1 { keys = "cmd+1" }
+            if !next && sel == 0 { keys = "cmd+9" }
+        }
+        try Keyboard.press(try KeyChord.parse(keys))
+    }
+
+    nonisolated(unsafe) static var tabStrip: (pid: pid_t, window: AXUIElement, group: AXUIElement)?
+
+    /// (selected tab index, tab count) of the focused window's tab strip. The strip is found once per window.
+    static func selectedTab(pid: pid_t) -> (Int, Int)? {
+        func attr(_ e: AXUIElement, _ k: String) -> CFTypeRef? { var v: CFTypeRef?; return AXUIElementCopyAttributeValue(e, k as CFString, &v) == .success ? v : nil }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.3)
+        guard let w = attr(app, kAXFocusedWindowAttribute) else { return nil }
+        let win = w as! AXUIElement
+        var group: AXUIElement?
+        if let c = tabStrip, c.pid == pid, CFEqual(c.window, win) { group = c.group }
+        if group == nil {
+            var queue: [(AXUIElement, Int)] = [(win, 0)], seen = 0
+            while !queue.isEmpty, seen < 3000, group == nil {
+                let (e, d) = queue.removeFirst(); seen += 1
+                if (attr(e, kAXRoleAttribute) as? String) == kAXTabGroupRole as String { group = e; break }
+                if d < 12 { queue += ((attr(e, kAXChildrenAttribute) as? [AXUIElement]) ?? []).map { ($0, d + 1) } }
+            }
+            guard let g = group else { return nil }
+            tabStrip = (pid, win, g)
+        }
+        let tabs = ((attr(group!, kAXChildrenAttribute) as? [AXUIElement]) ?? []).filter { (attr($0, kAXRoleAttribute) as? String) == kAXRadioButtonRole as String }
+        let isSelected = { (t: AXUIElement) -> Bool in let v = attr(t, kAXValueAttribute); return (v as? Int) == 1 || (v as? Bool) == true }
+        guard let sel = tabs.firstIndex(where: isSelected) else { tabStrip = nil; return nil }
+        return (sel, tabs.count)
+    }
+
     /// Press a button of the front app by its accessible name (title or description, any case) — for things with
     /// no shortcut, like Discord's camera. The first name found wins. Electron apps (Discord, Slack…) only build
     /// their accessibility tree when asked, so the first press may need a moment.

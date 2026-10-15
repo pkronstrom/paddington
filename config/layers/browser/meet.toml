@@ -1,5 +1,5 @@
 # Google Meet in the browser (the tab's title starts with "Meet - " or says "Google Meet").
-# Rows 1–2 become the meeting's controls; row 3 keeps the browser's, with Leave on the Close spot;
+# Rows 1–2 become the meeting's controls; row 3 and row 4 stay the browser's, with Leave on the Close spot (16);
 # row 4, knobs and < > stay the browser's. Same spots as teams.toml.
 # Hold to talk needs Meet's own "Push to talk" setting (Settings › Audio) — then holding Space unmutes.
 
@@ -22,8 +22,8 @@ pad6 = { label = "People",     keys = "ctrl+cmd+p", color = "nav", desc = "parti
 pad7 = { label = "Captions",   keys = "c", color = "skill", desc = "captions on / off (C)" }
 pad8 = { label = "Fullscreen", keys = "ctrl+cmd+f", color = "sys" }
 
-# ── row 3: Leave instead of Close tab ─────────────────────────
-pad12 = { label = "Leave", keys = "cmd+w", confirm = "ask", color = "danger", desc = "close the meeting tab — asks first: ✓ green / ✕ red" }
+# ── Leave on the Close spot (16) ──────────────────────────────
+pad16 = { label = "Leave", keys = "cmd+w", confirm = "ask", color = "danger", desc = "close the meeting tab — asks first: ✓ green / ✕ red" }
 
 [shift]
 # pads 1–4: the app slots (default.toml)

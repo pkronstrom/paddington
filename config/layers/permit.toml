@@ -1,6 +1,6 @@
 # An agent asks for permission (Claude's "Do you want to proceed?", Codex approvals) — read from the screen,
-# or from Claude's hook. Same spots as Confirm: pad 11 green ✓ Yes (blinks: waits for you), pad 10 and the
-# whole top row red ✕ No (Esc: tell it what to do instead), pad 12 cyan "Yes, and don't ask again" when
+# or from Claude's hook. Same as Confirm and lists: left red ✕ No (pads 6, 10 — Esc: tell it what to do instead),
+# right green ✓ Yes (pads 7, 11; they blink: it waits for you), pad 12 cyan "Yes, and don't ask again" when
 # offered. Other pads are off; knobs and < > still work.
 name      = "Allow?"
 kind      = "modal"
@@ -8,13 +8,11 @@ color     = "#ff922b"
 exclusive = true
 auto      = "q.confirm or agent.status == 'needs_approval'"
 
+pad6  = { label = "✕ No", answer = "no", color = "danger", to = "pane" }
+pad7  = { label = "✓ Yes", answer = "yes", color = "ok", look = "attention", to = "pane" }
 pad10 = { label = "✕ No", answer = "no", color = "danger", to = "pane" }
 pad11 = { label = "✓ Yes", answer = "yes", color = "ok", look = "attention", to = "pane" }
 pad12 = { label = "✓ Always", answer = "always", if = "q.always", color = "sys", to = "pane", desc = "{q.always.label}" }
-pad13 = { label = "✕ No", answer = "no", color = "danger", to = "pane" }
-pad14 = { label = "✕ No", answer = "no", color = "danger", to = "pane" }
-pad15 = { label = "✕ No", answer = "no", color = "danger", to = "pane" }
-pad16 = { label = "✕ No", answer = "no", color = "danger", to = "pane" }
 knob1 = { label = "↑ ↓ options", keys = { cw = "down", ccw = "up" }, to = "pane", color = "nav" }
 play  = { label = "✓ Yes", answer = "yes", color = "ok", to = "pane", hold = { legend = "show" } }
 pause = { label = "✕ No", answer = "no", color = "danger", to = "pane" }

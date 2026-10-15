@@ -55,6 +55,9 @@ public enum AgentStatus: String, CaseIterable {
         }
     }
     public var waiting: Bool { self == .needs_approval || self == .needs_input }
+    /// Waits for you: a question, an approval — or it stopped and you haven't looked at what it did yet.
+    /// These blink and count as waiting; `waiting` alone is the hook logic's "blocked on an answer".
+    public var wantsYou: Bool { waiting || self == .done_unread }
 }
 
 public struct Agent: Equatable {
@@ -207,9 +210,11 @@ public final class AgentStore {
         }
     }
 
-    /// Oldest waiting agent, excluding a pane (usually the focused one) when others wait.
+    /// Oldest agent waiting for you, excluding a pane (usually the focused one) when others wait: questions and
+    /// approvals first, then agents that stopped with work you haven't looked at.
     public func oldestWaiting(excluding: String? = nil) -> Agent? {
-        let waiting = agents.values.filter { $0.status.waiting }.sorted { $0.since < $1.since }
+        let waiting = agents.values.filter { $0.status.wantsYou }
+            .sorted { ($0.status.waiting ? 0 : 1, $0.since) < ($1.status.waiting ? 0 : 1, $1.since) }
         return waiting.first { $0.pane != excluding } ?? waiting.first
     }
 }
@@ -274,17 +279,37 @@ public struct Snapshot {
             }
             for (w, list) in perWindow { v["win.\(w).agents"] = .string(list.joined(separator: "|")) }
         }
+        // the Agents overview: every agent pane, the ones waiting for you first (questions and approvals, then
+        // finished-unseen, oldest first), then errors, working, the rest — as agents.slot.N.*
+        func rank(_ s: AgentStatus) -> Int {
+            s.waiting ? 0 : s == .done_unread ? 1 : s == .error ? 2 : (s == .working || s == .compacting) ? 3 : 4
+        }
+        let overview = context.panes.compactMap { p -> (pane: PaneInfo, status: AgentStatus, since: Double)? in
+            guard let s = status(of: p) else { return nil }
+            return (p, s, agents.agent(forPane: p.paneId)?.since ?? 0)
+        }.sorted { (rank($0.status), $0.since, $0.pane.session, $0.pane.window) < (rank($1.status), $1.since, $1.pane.session, $1.pane.window) }
+        v["agents.count"] = .number(Double(overview.count))
+        let severalSessions = Set(overview.map(\.pane.session)).count > 1     // then labels say which: "work:3"
+        for (i, a) in overview.enumerated() {
+            let n = i + 1, p = a.pane
+            let project = URL(fileURLWithPath: p.path).lastPathComponent
+            let session = severalSessions ? "\(p.session):" : ""
+            v["agents.slot.\(n).pane"] = .string(p.paneId)
+            v["agents.slot.\(n).status"] = .string(a.status.rawValue)
+            v["agents.slot.\(n).label"] = .string("\(session)\(p.window) · \(project)")
+            v["agents.slot.\(n).note"] = .string("\(p.command.capitalized) \(Looks.statusLabel(a.status.rawValue))")
+        }
         if let u = agents.usage5h { v["usage.5h"] = .number(u) }
         if let u = agents.usage7d { v["usage.7d"] = .number(u) }
         let all = Array(agents.agents.values)
-        v["agents.waiting"] = .number(Double(all.filter { $0.status.waiting }.count))
+        v["agents.waiting"] = .number(Double(all.filter { $0.status.wantsYou }.count))   // incl. stopped, unseen
         v["agents.working"] = .number(Double(all.filter { $0.status == .working }.count))
         v["agents.done"] = .number(Double(all.filter { $0.status == .done_unread }.count))
         if let o = agents.oldestWaiting(excluding: context.focusedPane?.paneId) {
             v["agents.oldest_waiting"] = .string(o.pane)
             if let p = context.panes.first(where: { $0.paneId == o.pane }) {
                 v["agents.oldest_waiting.window"] = .number(Double(p.window))
-                v["agents.oldest_waiting.reason"] = .string(o.reason)
+                v["agents.oldest_waiting.reason"] = .string(o.status == .done_unread ? "done" : o.reason)
             }
         }
         return Snapshot(values: v)

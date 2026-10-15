@@ -20,8 +20,8 @@ pad6 = { label = "Accept",     keys = "cmd+shift+s", color = "ok", desc = "accep
 pad7 = { label = "Decline",    keys = "cmd+shift+d", color = "danger", desc = "decline an incoming call (⌘⇧D)" }
 pad8 = { label = "Fullscreen", keys = "ctrl+cmd+f", color = "sys" }
 
-# ── row 3: Leave instead of Close tab ─────────────────────────
-pad12 = { label = "Leave", keys = "cmd+shift+h", confirm = "ask", color = "danger", desc = "hang up (⌘⇧H) — asks first: ✓ green / ✕ red" }
+# ── Leave on the Close spot (16) ──────────────────────────────
+pad16 = { label = "Leave", keys = "cmd+shift+h", confirm = "ask", color = "danger", desc = "hang up (⌘⇧H) — asks first: ✓ green / ✕ red" }
 
 [shift]
 # pads 1–4: the app slots (default.toml)

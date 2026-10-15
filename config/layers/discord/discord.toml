@@ -1,5 +1,5 @@
 # Discord (the desktop app). Rows 1–2: your voice and getting around; rows 3–4 are the default ruleset's,
-# with Leave call on the Close spot. Mute and deafen are Discord's own shortcuts; camera, screen share and
+# with Leave call on the Close spot (16). Mute and deafen are Discord's own shortcuts; camera, screen share and
 # leave have none, so they press Discord's buttons (works while you're in a voice channel or call).
 
 name    = "Discord"
@@ -23,8 +23,8 @@ pad6 = { label = "Find…",        keys = "cmd+k", color = "skill", desc = "quic
 pad7 = { label = "Next mention", keys = "ctrl+alt+shift+down", color = "nav", desc = "next channel with an unread mention" }
 pad8 = { label = "Upload",       keys = "cmd+shift+u", color = "act" }
 
-# ── row 3: Leave call on the Close spot ───────────────────────
-pad12 = { label = "Leave call", press = ["Disconnect"], confirm = "ask", color = "danger", desc = "disconnect from voice — asks first: ✓ green / ✕ red" }
+# ── Leave call on the Close spot (16) ─────────────────────────
+pad16 = { label = "Leave call", press = ["Disconnect"], confirm = "ask", color = "danger", desc = "disconnect from voice — asks first: ✓ green / ✕ red" }
 
 # ── knobs: channels and servers ───────────────────────────────
 knob3 = { label = "Channels", step = 3, keys = { cw = "alt+down", ccw = "alt+up" }, color = "nav", sound = "nav" }

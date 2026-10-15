@@ -93,7 +93,7 @@ tmux = ["select-pane", "-t", "{session}:", "-L"]
 
 # Close… → pick how to close, then confirm with pad 11 (green ✓) or cancel with pad 10 (red ✕).
 [close]
-confirm = true
+# no second ✓ / ✕: picking an item with the list's green ✓ is the confirmation (a tap on Close asks once instead)
 title = "Close"
 
 [[close.items]]
