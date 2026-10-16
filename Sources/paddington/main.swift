@@ -49,6 +49,7 @@ Paddington \(Paddington.version) — MIDI pad → Mac control surface
   paddington apps                  bundle id + window title of the app in front (after 3 s)
   paddington hooks install|uninstall   Claude Code hooks (observe-only) in ~/.claude/settings.json
   paddington hook <Event>          (used by the hooks) forward a hook payload from stdin
+  paddington pad [global|dump|probe [bytes…]|set <byte> <value>]   the pad's settings: show, save all presets, light test, set a byte
 """
 
 // The app bundle's Info.plist sets PADDINGTON_APP=1 via LSEnvironment.
@@ -254,6 +255,12 @@ case "hooks":
         }
     default: fail("usage: paddington hooks install|uninstall [claude|codex]")
     }
+
+case "pad":
+    var req: [String: Any] = ["cmd": "pad", "action": args.count > 1 ? args[1] : "global"]
+    if args.count > 1, args[1] == "probe" { req["bytes"] = args.dropFirst(2).compactMap { Int($0) } }
+    else if args.count > 3, let i = Int(args[2]), let v = Int(args[3]) { req["index"] = i; req["value"] = v }
+    out(jsonString(appRequest(req)))
 
 case "send":
     // paddington send <dest-match> <status> <data1> <data2> [...more triples] — numbers in decimal or 0x hex

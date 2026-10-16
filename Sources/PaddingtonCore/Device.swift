@@ -143,6 +143,9 @@ public final class DeviceDecoder {
 
     public init(profile: DeviceProfile) { self.profile = profile }
 
+    /// The bank as the pad itself reports it (its global settings), before any press shows it.
+    public func setPadBank(_ bank: String) { padBank = bank }
+
     public func decode(_ m: MIDIMessage) -> [ControlEvent] {
         for c in profile.controls {
             if let ch = c.channel, ch != m.channel { continue }

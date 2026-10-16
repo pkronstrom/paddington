@@ -10,8 +10,10 @@ public struct RunResult {
 }
 
 /// ~/Library/Logs/paddington.log: context changes and failures, for "why did it show Default?".
+/// PADDINGTON_LOG=<path> writes elsewhere (test instances).
 public enum Log {
-    static let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/paddington.log")
+    static let url = ProcessInfo.processInfo.environment["PADDINGTON_LOG"].map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/paddington.log")
     static let lock = NSLock()
     static let stamp: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"; return f }()
 

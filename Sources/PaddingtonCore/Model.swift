@@ -392,6 +392,9 @@ public struct Settings {
     public var ledBrightness = 1.0         // pads in general
     public var ledWindowBrightness = 0.3   // window pads other than the current one (current = full)
     public var ledNightScale = 0.3         // menu › Dim pad lights (night) multiplies every level by this
+    public var sleepAfter: Double = 300     // [sleep] after: lights go dark after this long without pad input; 0 = never
+    public var sleepLevel = 0.0            // [sleep] level: light level while asleep (0 = off)
+    public var sleepWakeForAgents = false  // [sleep] wake_for_agents: an agent that starts waiting wakes the lights
     /// Pad light colours by key: colour categories, agent statuses, modes. Distinct hues, no purple/pink or blue/indigo pairs.
     public var ledColors: [String: String] = [
         // 7 clearly separate hues only: red, green, blue, yellow, cyan, magenta, white
@@ -450,6 +453,11 @@ public struct Settings {
             if let b = l["window_brightness"]?.number { s.ledWindowBrightness = max(0, min(1, b)) }
             if let b = l["night"]?.number { s.ledNightScale = max(0, min(1, b)) }
             for (k, v) in l where !["mode", "brightness", "window_brightness", "night"].contains(k) { if let c = v.string { s.ledColors[k] = c } }
+        }
+        if let sl = t["sleep"]?.table {
+            if let v = sl["after"].flatMap(parseDuration) { s.sleepAfter = max(0, v) }
+            if let v = sl["level"]?.number { s.sleepLevel = max(0, min(1, v)) }
+            if let v = sl["wake_for_agents"]?.bool { s.sleepWakeForAgents = v }
         }
         if let sn = t["sounds"]?.table {
             if let b = sn["enabled"]?.bool { s.soundsEnabled = b }

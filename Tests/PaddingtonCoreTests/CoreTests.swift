@@ -468,6 +468,36 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(d.decode(MIDIMessage(status: 0xB0, channel: 0, data1: 27, data2: 127)) == [.down("play")])
     }
 
+    /// The pad reports its bank in its global settings: known before any press, and a knob or button press
+    /// doesn't undo it; the next pad press (its note) still decides.
+    @Test func padBankFromThePad() throws {
+        let d = DeviceDecoder(profile: try loadConfig().device)
+        d.setPadBank("B")
+        _ = d.decode(MIDIMessage(status: 0xB0, channel: 0, data1: 27, data2: 127))
+        _ = d.decode(MIDIMessage(status: 0xB0, channel: 0, data1: 30, data2: 50))
+        #expect(d.padBank == "B")
+        _ = d.decode(MIDIMessage(status: 0x90, channel: 9, data1: 38, data2: 100))     // a bank-A note
+        #expect(d.padBank == "A")
+    }
+
+    /// Once the pad reports its bank, the legend's pads follow PAD BANK: bank B's (shift) actions on the face, bank
+    /// A's above; before that it never guesses.
+    @Test func legendFollowsReportedPadBank() throws {
+        let e = Engine(config: try loadConfig())
+        var ctx = Context(); ctx.app = "com.apple.TextEdit"
+        let a = e.appearance("pad1", ctx: ctx, snap: Snapshot(), shift: false).label
+        let b = e.appearance("pad1", ctx: ctx, snap: Snapshot(), shift: true).label
+        #expect(a != b)
+        e.padBank = "B"
+        #expect(e.appearance("pad1", ctx: ctx, snap: Snapshot()).label == a)            // bank only from a press: no guess
+        e.padBankLive = true
+        let face = e.appearance("pad1", ctx: ctx, snap: Snapshot())
+        #expect(face.label == b && face.altLabel == a)
+        #expect(e.appearance("pad_bank", ctx: ctx, snap: Snapshot()).selected)
+        e.padBank = "A"
+        #expect(e.appearance("pad1", ctx: ctx, snap: Snapshot()).label == a && !e.appearance("pad_bank", ctx: ctx, snap: Snapshot()).selected)
+    }
+
     @Test func knobBankB() throws {
         let c = try loadConfig()
         let d = DeviceDecoder(profile: c.device)
@@ -1207,5 +1237,57 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         s.handle(event: "SessionStart", payload: payload("a"), pane: "%9", now: 0)
         s.reconcile(panes: itermContext().panes, agentCommands: ["claude"])
         #expect(s.agents.isEmpty)
+    }
+}
+
+@Suite struct SleepTests {
+    /// [sleep]: dark after `after` seconds without pad input; the first press, turn or button only wakes the pad.
+    @Test func firstPressOnlyWakes() {
+        var s = PadSleep(after: 300, now: 0)
+        var fell = s.check(now: 299)
+        #expect(!fell && !s.asleep)
+        var r = s.input([.down("pad3")], now: 100)                                    // input resets the clock
+        #expect(r.events == [.down("pad3")])
+        _ = s.input([.up("pad3")], now: 100.1)
+        fell = s.check(now: 399)
+        #expect(!fell)
+        fell = s.check(now: 400.2)
+        #expect(fell && s.asleep)
+        fell = s.check(now: 500)
+        #expect(!fell)                                                                // falls asleep once
+        // a pad wakes it: neither its press nor its release reach the engine
+        r = s.input([.down("pad5")], now: 500)
+        #expect(r.events.isEmpty && r.woke && !s.asleep)
+        r = s.input([.up("pad5")], now: 500.3)
+        #expect(r.events.isEmpty && !r.woke)
+        r = s.input([.down("pad5")], now: 501)
+        #expect(r.events == [.down("pad5")])                                          // the next press acts
+        r = s.input([.up("pad5")], now: 501.1)
+        #expect(r.events == [.up("pad5")])
+        // a knob wakes it: the rest of that turn is ignored for a moment, other controls aren't
+        s.sleep()
+        r = s.input([.turn("knob3", 1)], now: 600)
+        #expect(r.woke && r.events.isEmpty)
+        r = s.input([.turn("knob3", 1)], now: 600.2)
+        #expect(r.events.isEmpty)
+        r = s.input([.turn("knob4", 1)], now: 600.3)
+        #expect(r.events == [.turn("knob4", 1)])
+        r = s.input([.turn("knob3", -1)], now: 600.6)
+        #expect(r.events == [.turn("knob3", -1)])
+        // an agent wakes it: the next press acts
+        s.sleep(); s.wake(now: 700)
+        r = s.input([.down("play")], now: 701)
+        #expect(r.events == [.down("play")])
+    }
+
+    @Test func neverSleepsWithZeroAndParsesSettings() throws {
+        var s = PadSleep(after: 0, now: 0)
+        let fell = s.check(now: 100_000)
+        #expect(!fell)
+        let st = Settings.parse(["sleep": .table(["after": .string("2m"), "level": .number(0.05), "wake_for_agents": .bool(true)])])
+        #expect(st.sleepAfter == 120 && st.sleepLevel == 0.05 && st.sleepWakeForAgents)
+        #expect(Settings().sleepAfter == 300 && Settings().sleepLevel == 0)
+        let shipped = try loadConfig()
+        #expect(shipped.settings.sleepAfter == 300 && shipped.settings.sleepLevel == 0 && !shipped.settings.sleepWakeForAgents)
     }
 }

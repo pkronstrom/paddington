@@ -180,6 +180,8 @@ public final class Engine {
     public private(set) var stack: [StackEntry] = []
     public private(set) var shiftHeld = false
     public var padBank = "A"
+    /// The pad reports its bank itself (its global settings): then the legend can follow PAD BANK at once.
+    public var padBankLive = false
     public var knobBank = "A"
     /// Shift is on while the shift role is held, or while pad bank B is active (when banks.pad_b = "shift").
     public var shiftActive: Bool { shiftHeld || (padBank == "B" && config.settings.padBankB == "shift") }
@@ -827,15 +829,19 @@ public final class Engine {
                               blink: false, bound: true, detail: "knob bank B = the knobs' shift layer (system knobs)")
         }
         if control == "pad_bank" && config.settings.padBankB == "shift" {
-            return Appearance(label: "Pads B", color: config.settings.color("sys"),
-                              blink: false, bound: true, detail: "bank B = shift layer (the pad's bank light shows it)")
+            var a = Appearance(label: "Pads B", color: config.settings.color("sys"),
+                               blink: false, bound: true, detail: "bank B = shift layer (the pad's bank light shows it)")
+            a.selected = padBankLive && padBank == "B"
+            return a
         }
         if config.device.hardwareOnly.contains(control) {
             return Appearance(label: config.device.layout.labels[control] ?? control, color: nil, blink: false, bound: false, detail: "hardware only")
         }
-        // The banks send no MIDI of their own, so paddington only learns the bank from the next press. The legend
-        // therefore never guesses: a pad/knob shows its bank-A action, with the bank-B one printed above it.
-        let on = control.hasPrefix("pad") || control.hasPrefix("knob") ? shiftHeld : shiftActive(for: control)
+        // The banks send no MIDI of their own. The pad reports its pad bank over its settings session (padBankLive):
+        // then a pad shows the active bank's action, the other bank's printed above it. Otherwise (and for knobs,
+        // whose bank is only learned from the next turn) the legend never guesses: bank A, with bank B above.
+        let on = control.hasPrefix("pad") ? shiftHeld || (padBankLive && shiftActive)
+            : control.hasPrefix("knob") ? shiftHeld : shiftActive(for: control)
         var a = appearance(control, ctx: ctx, snap: snap, shift: on)
         if a.bound || control.hasPrefix("pad") || control.hasPrefix("knob") || !config.device.hardwareOnly.contains(control) {
             let other = appearance(control, ctx: ctx, snap: snap, shift: !on)

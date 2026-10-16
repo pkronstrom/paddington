@@ -54,5 +54,6 @@ paddington monitor            # raw MIDI and what it maps to
 paddington simulate pad3 tap  # drive the running app without the pad
 ```
 
-Design notes are in [docs/plans/](docs/plans/). The LED protocol comes from
+Design notes are in [docs/plans/](docs/plans/); what the pad itself reports (settings memory, SHIFT, NOTE REPEAT)
+is in [docs/smc-pad-findings.md](docs/smc-pad-findings.md). The LED protocol comes from
 [spectalive/smc-pad](https://github.com/spectalive/smc-pad), and the TR-707 samples are public domain.

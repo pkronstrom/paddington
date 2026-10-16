@@ -37,6 +37,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var paused = false
     var configStamp: Date?
     var lastPadMessage: Date?
+    /// [sleep]: lights dark after a while without pad input (saves the pad's battery); the next press only wakes it.
+    var padSleep = PadSleep(after: 300, now: Date().timeIntervalSince1970)
+    var wantedYou: Set<String> = []     // agents waiting for you at the last render ([sleep] wake_for_agents)
     var timers: [Timer] = []
     var lastUnmappedToast = Date.distantPast
 
@@ -98,6 +101,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             self.ensureConnection(); self.render()
         }
         do { try midi.start() } catch { lastError = "MIDI: \(error.localizedDescription)" }
+        leds.onGlobal = { [weak self] g in self?.padGlobal(g) }
 
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             self?.refreshContext(); self?.render()
@@ -114,7 +118,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         timers = [
             Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.tick() },
             Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.refreshContext(); self?.render() },
-            Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.checkConfigChanged(); self?.checkApprovals(); self?.checkUpdated() },
+            Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.checkConfigChanged(); self?.checkApprovals(); self?.checkSleep(); self?.checkUpdated() },
             Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in self?.reconcile(); self?.ensureConnection() },
         ]
         refreshContext()
@@ -147,6 +151,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         do {
             let c = try Config.load()
             config = c
+            padSleep.after = c.settings.sleepAfter
             if let e = engine { e.reload(c) } else { engine = Engine(config: c) }
             if decoder?.profile.name != c.device.name || decoder == nil || !initial { decoder = DeviceDecoder(profile: c.device) }
             legend.position = c.settings.legendPosition
@@ -349,9 +354,70 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
         if let e = engine, e.padBank != dec.padBank { e.padBank = dec.padBank }
         if let e = engine, e.knobBank != dec.knobBank { e.knobBank = dec.knobBank }
+        let (left, woke) = padSleep.input(events, now: now)
+        if woke { Log.write("pad awake (\(events.map(\.control).joined(separator: " ")))"); render(); return }
         midiNote = m.isNoteOn ? Int(m.data1) : nil
         defer { midiNote = nil }
-        for ev in events { input(ev) }
+        for ev in left { input(ev) }
+    }
+
+    /// Every second: the pad falls asleep after [sleep] after without input.
+    func checkSleep() {
+        guard !testMode || ProcessInfo.processInfo.environment["PADDINGTON_TEST_SLEEP"] == "1" else { return }
+        if padSleep.check(now: now) { Log.write("pad asleep (\(Int(padSleep.after)) s without input)"); render() }
+    }
+
+    /// The pad's global settings changed (read twice a second with the lights' session): it reports its pad bank
+    /// there, so the bank is known at once instead of from the next pad press.
+    func padGlobal(_ g: [UInt8]) {
+        guard g.count == PadLEDs.Global.size else { return }
+        let bank = g[PadLEDs.Global.padBank] == 0 ? "A" : "B"
+        decoder?.setPadBank(bank)
+        engine?.padBankLive = true
+        if let e = engine, e.padBank != bank { e.padBank = bank; Log.write("pad bank \(bank) (as the pad reports it)"); render() }
+    }
+
+    /// Which global byte, if any, drives the side-button / BT lights: each byte whose meaning is unknown (or the
+    /// ones given) gets a test value for a few seconds (watch the pad), then its own value back. Logged; everything is
+    /// restored at the end.
+    var probing = false
+    func probeSideLights(bytes: [Int] = [3, 6, 9, 1, 4, 5, 7], hold: Double = 4) -> [String: Any] {
+        guard !probing else { return ["ok": false, "error": "a test is already running"] }
+        guard leds.ready, leds.global.count == PadLEDs.Global.size else { return ["ok": false, "error": "the pad's light session isn't up (\(leds.status))"] }
+        probing = true
+        let original = leds.global
+        let steps: [(Int, UInt8)] = bytes.filter { (0..<PadLEDs.Global.size).contains($0) }.map { ($0, original[$0] == 0 ? 1 : 0) }
+        Log.write("side-light test: start, global \(PadLEDs.hex(original))")
+        var t = 1.0
+        for (n, (i, v)) in steps.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in
+                guard let self else { return }
+                Log.write("side-light test \(n + 1)/\(steps.count): byte \(i) \(String(format: "%02X", original[i])) → \(String(format: "%02X", v))")
+                self.leds.writeGlobal(index: i, value: v)
+                self.legend.toast("Pad test \(n + 1) of \(steps.count) (byte \(i)) — did any light change?")
+            }
+            t += hold
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in self?.leds.writeGlobal(index: i, value: original[i]) }
+            t += 1.5
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + t + 1) { [weak self] in
+            guard let self else { return }
+            self.probing = false
+            let now = self.leds.global
+            if now == original { Log.write("side-light test: done, global as before"); self.legend.toast("Side-light test done") }
+            else {
+                Log.write("side-light test: done, global \(PadLEDs.hex(now)) differs from \(PadLEDs.hex(original)) — writing it back")
+                for i in 0..<min(now.count, original.count) where now[i] != original[i] { self.leds.writeGlobal(index: i, value: original[i]) }
+                self.legend.toast("Side-light test done (restored the pad's settings)")
+            }
+        }
+        return ["ok": true, "steps": steps.count, "seconds": Int(t + 1)]
+    }
+
+    @objc func sleepNow() {
+        padSleep.sleep()
+        Log.write("pad asleep (menu)")
+        render()
     }
 
     func input(_ ev: ControlEvent) {
@@ -570,8 +636,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
         var controls: [String: Appearance] = [:]
         for c in cfg.device.allControlNames { controls[c] = e.appearance(c, ctx: context, snap: snap) }
         if controls != m.controls { m.controls = controls }
-        // colour key: the statuses on window pads now, in a fixed order
-        let notes = controls.values.filter { $0.windowSlot && !$0.note.isEmpty }.map(\.note)
+        // colour key: the statuses on window pads now, in a fixed order — from both pad banks, so the legend keeps
+        // its height when PAD BANK flips the faces to bank B
+        let notes = cfg.device.allControlNames.filter { $0.hasPrefix("pad") }
+            .flatMap { n in [false, true].map { e.appearance(n, ctx: context, snap: snap, shift: $0) } }
+            .filter { $0.windowSlot && !$0.note.isEmpty }.map(\.note)
         let key = Looks.statusWords.filter { w in notes.contains { $0 == w.1 || $0.contains(" \(w.1)") } }
             .map { StatusKeyItem(label: $0.1, hex: cfg.settings.ledColors[$0.0] ?? "#888888") }
         if key != m.statusKey { m.statusKey = key }
@@ -583,7 +652,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let stack = e.effectiveStack(context, snap)
         m.layerColor = stack.last?.color ?? "#888888"
         let modal = stack.last?.kind == .modal
-        m.frameStyle = modal ? .modal : (e.shiftHeld ? .held : (stack.count > 1 ? .temporary : .base))
+        let bankB = e.padBankLive && e.shiftActive && !e.shiftHeld        // pad bank B = the shift layer, shown as such
+        m.frameStyle = modal ? .modal : (e.shiftHeld || bankB ? .held : (stack.count > 1 ? .temporary : .base))
         legend.showPicker(e.picker)
         // menus, questions and confirmations don't pop the legend up: the pads light and label themselves
         // (hold ▶ to see it). Status displays do (legend = true, e.g. the Agents overview): up while they're on.
@@ -604,6 +674,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let f = footer.joined(separator: "  ·  ")
         if m.footer != f { m.footer = f }
         if legend.visible { legend.update() }
+        // [sleep] wake_for_agents: an agent that starts waiting for you lights the pad again
+        let wanting = Set(agents.agents.values.filter { $0.status.wantsYou }.map(\.sessionId))
+        if padSleep.asleep, cfg.settings.sleepWakeForAgents, !wanting.subtracting(wantedYou).isEmpty {
+            padSleep.wake(now: now)
+            Log.write("pad awake (an agent waits for you)")
+        }
+        wantedYou = wanting
         paintLEDs(cfg, e, snap)
         updateDrums(cfg, e, snap)
 
@@ -656,7 +733,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             let a = e.appearance(c.name, ctx: context, snap: snap, shift: c.bank == "B")
             let (hex, base) = Self.light(a, s) ?? ("#000000", 0)
             guard let v = UInt32(hex.dropFirst(), radix: 16), hex.hasPrefix("#") else { continue }
-            var level = base * (ledNight ? s.ledNightScale : 1)
+            var level = base * (ledNight ? s.ledNightScale : 1) * (padSleep.asleep ? s.sleepLevel : 1)
             if a.blink, s.ledMode == "live", Int(now * 2) % 2 == 1 { level *= 0.12 }   // blink at ~1 Hz
             func ch(_ x: UInt32) -> UInt8 { UInt8(min(255, Double(x & 0xFF) * level)) }
             leds.set(note: note, r: ch(v >> 16), g: ch(v >> 8), b: ch(v))
@@ -666,7 +743,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// padbeat's note map: every pad note (bank A and B) whose binding only plays a sample file.
     func updateDrums(_ cfg: Config, _ e: Engine, _ snap: Snapshot) {
         guard !testMode else { return }     // the map file is shared: a test copy must never touch it
-        guard cfg.settings.soundsEnabled, !paused else { drums.update(source: cfg.device.match, entries: [:]); return }
+        guard cfg.settings.soundsEnabled, !paused, !padSleep.asleep else { drums.update(source: cfg.device.match, entries: [:]); return }
         var entries: [Int: (String, Double)] = [:]
         for c in cfg.device.controls where c.kind == .pad {
             guard let note = c.note, let (b, _) = e.resolve(c.name, context, snap, shift: c.bank == "B"),
@@ -688,7 +765,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var menuSignature = ""
     func rebuildMenu() {
         let path = engine?.layerPath(context, now: now) ?? "-"
-        let sig = "\(path)|\(lastError ?? "")|\(paused)|\(padSourcePresent)|\(ble?.status ?? "")|\(AXIsProcessTrusted())|\(Self.loginAgent.status.rawValue)|\(leds.status)|\(ledNight)|\(agentSounds)"
+        let sig = "\(path)|\(lastError ?? "")|\(paused)|\(padSourcePresent)|\(ble?.status ?? "")|\(AXIsProcessTrusted())|\(Self.loginAgent.status.rawValue)|\(leds.status)|\(ledNight)|\(agentSounds)|\(padSleep.asleep)"
         guard sig != menuSignature else { return }
         menuSignature = sig
         let menu = NSMenu()
@@ -712,7 +789,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         login.target = self
         login.state = Self.loginAgent.status == .enabled ? .on : .off
         menu.addItem(login)
-        info("Pad lights: \(leds.status)")
+        info("Pad lights: \(leds.status)\(padSleep.asleep ? " · asleep — any press wakes them" : "")")
+        if !padSleep.asleep { item("Sleep pad lights now", #selector(sleepNow)) }
         let night = NSMenuItem(title: "Dim pad lights (night)", action: #selector(toggleNight), keyEquivalent: "")
         night.target = self
         night.state = ledNight ? .on : .off
@@ -856,7 +934,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                     "pad_bank": engine?.padBank ?? "?", "knob_bank": engine?.knobBank ?? "?",
                     "drums": ["padbeat": drums.running, "notes": drums.notes.sorted()] as [String: Any],
                     "tmux_clients": Tmux.clients().map { "\($0.tty) \($0.session)" },
-                    "accessibility": AXIsProcessTrusted(), "paused": paused,
+                    "accessibility": AXIsProcessTrusted(), "paused": paused, "asleep": padSleep.asleep,
                     "sources": MIDIService.sources().map { "\($0.name)\($0.online ? "" : " (offline)")" }]
         case "reload":
             if let err = reloadConfig(initial: false) { return ["ok": false, "error": err] }
@@ -878,6 +956,27 @@ public final class AppController: NSObject, NSApplicationDelegate {
             let ok = MainActor.assumeIsolated { legend.renderPNG(to: path) }
             return ok ? ["ok": true] : ["ok": false, "error": "render failed"]
         case "bt_window": ble?.showPairingWindow(); return ["ok": true]
+        case "pad":
+            switch req["action"] as? String ?? "global" {
+            case "dump":
+                guard leds.ready else { return ["ok": false, "error": "the pad's light session isn't up (\(leds.status))"] }
+                leds.dumpConfig()
+                return ["ok": true, "file": "~/Library/Application Support/paddington/pad-config.bin (in ~5 s)"]
+            case "probe":
+                if let b = req["bytes"] as? [Int], !b.isEmpty { return probeSideLights(bytes: b, hold: 6) }
+                return probeSideLights()
+            case "set":
+                guard let i = req["index"] as? Int, let v = req["value"] as? Int, (0...255).contains(v), leds.ready else {
+                    return ["ok": false, "error": "need index 0–11, value 0–255 and the pad's light session"]
+                }
+                leds.writeGlobal(index: i, value: UInt8(v))
+                return ["ok": true]
+            default:
+                let w = leds.written
+                return ["ok": true, "global": PadLEDs.hex(leds.global), "lights": leds.status, "pad_bank": engine?.padBank ?? "?",
+                        "bank_a": (36...51).map { w[$0] ?? "-" }.joined(separator: " "),
+                        "bank_b": (52...67).map { w[$0] ?? "-" }.joined(separator: " ")]
+            }
         case "leds":
             switch req["action"] as? String ?? "status" {
             case "start": leds.start()
