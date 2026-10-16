@@ -1,7 +1,7 @@
 import ApplicationServices
 import Carbon.HIToolbox
 import Foundation
-import PadctlCore
+import PaddingtonCore
 
 /// Synthetic keyboard events (needs Accessibility permission).
 public enum Keyboard {
@@ -47,7 +47,7 @@ public enum Keyboard {
 
     public static func isKnown(_ k: KeyChord) -> Bool { resolve(k) != nil }
 
-    /// Modifier flags padctl currently holds down (passthrough), so other synthetic keys don't drop them.
+    /// Modifier flags paddington currently holds down (passthrough), so other synthetic keys don't drop them.
     static var heldFlags = CGEventFlags()
 
     /// Character keys resolve through the *current* keyboard layout (so "+" or "[" work on a Finnish

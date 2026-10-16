@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import PadctlCore
+import PaddingtonCore
 
 public struct RunResult {
     public var status: Int32
@@ -9,9 +9,9 @@ public struct RunResult {
     public var ok: Bool { status == 0 }
 }
 
-/// ~/Library/Logs/padctl.log: context changes and failures, for "why did it show Default?".
+/// ~/Library/Logs/paddington.log: context changes and failures, for "why did it show Default?".
 public enum Log {
-    static let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/padctl.log")
+    static let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/paddington.log")
     static let lock = NSLock()
     static let stamp: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"; return f }()
 
@@ -105,8 +105,8 @@ public enum Shell {
 public enum Tmux {
     public static var available: Bool { Shell.which("tmux") != nil }
 
-    /// PADCTL_TMUX_SOCKET=name targets an isolated server (`tmux -L name`), for tests.
-    static let socketArgs: [String] = ProcessInfo.processInfo.environment["PADCTL_TMUX_SOCKET"].map { ["-L", $0] } ?? []
+    /// PADDINGTON_TMUX_SOCKET=name targets an isolated server (`tmux -L name`), for tests.
+    static let socketArgs: [String] = ProcessInfo.processInfo.environment["PADDINGTON_TMUX_SOCKET"].map { ["-L", $0] } ?? []
 
     @discardableResult
     public static func run(_ args: [String], timeout: Double = 2) -> RunResult { Shell.run(["tmux"] + socketArgs + args, timeout: timeout) }
@@ -132,7 +132,7 @@ public enum Tmux {
         guard r.ok else {
             let err = r.err.trimmingCharacters(in: .whitespacesAndNewlines)
             // no server at all is fine (no panes); a socket that exists but can't be reached is an error
-            // (e.g. padctl was started inside an agent's sandbox) and must not look like "no tmux"
+            // (e.g. paddington was started inside an agent's sandbox) and must not look like "no tmux"
             if err.contains("no server running") || (err.contains("error connecting") && err.contains("No such file")) { return [] }
             throw KeyError("tmux list-panes failed (\(r.status)): \(err.isEmpty ? "timed out?" : err)")
         }
@@ -186,7 +186,7 @@ public enum Tmux {
 /// iTerm2: tty of the focused session (needs Automation permission once).
 public enum ITerm {
     public static let bundleId = "com.googlecode.iterm2"
-    private static let queue = DispatchQueue(label: "padctl.iterm")
+    private static let queue = DispatchQueue(label: "paddington.iterm")
     private static var cached: String?
     private static var cachedAt = Date.distantPast
     private static var inFlight = false

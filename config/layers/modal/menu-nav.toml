@@ -1,6 +1,6 @@
 # Menu navigation: entered after a binding with then = "menu-nav" (e.g. Rewind, /model).
 # Like lists: only the middle four pads are lit — left red ✕ backs out (Esc, pads 6, 10), right green ✓ selects
-# (Enter, pads 7, 11); other pads are off. Knobs and < > move. When padctl can read the menu's numbered options
+# (Enter, pads 7, 11); other pads are off. Knobs and < > move. When Paddington can read the menu's numbered options
 # on screen, pads 1–8 show them instead (layers/choices.toml) and pick one; pads 10 / 11 stay red / green.
 name    = "Menu"
 kind    = "modal"

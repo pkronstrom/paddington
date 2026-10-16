@@ -1,5 +1,5 @@
 import Foundation
-import PadctlCore
+import PaddingtonCore
 
 /// Thread-safe buffer of incoming MIDI for CLI tools that block while waiting.
 final class MIDIInbox {
@@ -104,7 +104,7 @@ public final class LearnTool {
         usleep(300_000)
         let srcs = MIDIService.sources().filter(\.online)
         if srcs.isEmpty {
-            say("No MIDI source found. Connect the pad first (the padctl menu-bar icon (4×4 grid) › Connect pad, or Bluetooth MIDI window).")
+            say("No MIDI source found. Connect the pad first (the Paddington menu-bar icon (4×4 grid) › Connect pad, or Bluetooth MIDI window).")
             return
         }
         say("MIDI sources: " + srcs.map(\.name).joined(separator: ", "))
@@ -175,7 +175,7 @@ public final class LearnTool {
     func write(lines: [String], bankB: [String], hardwareOnly: [String], source: String) {
         let quoted = { (a: [String]) in a.map { "\"\($0)\"" }.joined(separator: ", ") }
         var t = """
-        # Learned by `padctl learn` on \(ISO8601DateFormatter().string(from: Date())) from "\(source)".
+        # Learned by `paddington learn` on \(ISO8601DateFormatter().string(from: Date())) from "\(source)".
         name = "\(base.name)"
         match = "\(source)"
         hardware_only = [\(quoted(hardwareOnly))]

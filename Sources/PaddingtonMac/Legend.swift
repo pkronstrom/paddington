@@ -1,5 +1,5 @@
 import AppKit
-import PadctlCore
+import PaddingtonCore
 import SwiftUI
 
 public final class LegendModel: ObservableObject {

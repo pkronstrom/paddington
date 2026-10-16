@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import PadctlCore
+import PaddingtonCore
 
 /// Every app's windows for the window list (knob bank B): apps front to back, each app's windows in its own
 /// order (front first). Titles come from Accessibility (window names from CGWindowList need Screen Recording).

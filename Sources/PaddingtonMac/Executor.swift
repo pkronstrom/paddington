@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
-import PadctlCore
+import PaddingtonCore
 
 /// Runs plans serially, off the main thread. Revalidates the captured pane before every step.
 public final class Executor {
@@ -12,7 +12,7 @@ public final class Executor {
     public var dryRun = false
     public var log: ((String) -> Void)?
 
-    private let queue = DispatchQueue(label: "padctl.executor")
+    private let queue = DispatchQueue(label: "paddington.executor")
 
     public init() {}
 
@@ -136,7 +136,7 @@ public final class Executor {
         guard var cur = Self.readMode(pane: pane) else { toast("Can't read the mode line"); return false }
         var seen: Set<String> = [cur]
         for _ in 0..<6 {
-            if cur == target { toast("Mode: \(PadctlCore.Looks.modeLabel(target))"); return true }
+            if cur == target { toast("Mode: \(PaddingtonCore.Looks.modeLabel(target))"); return true }
             Tmux.run(["send-keys", "-t", pane, "BTab"])
             usleep(250_000)
             guard let next = Self.readMode(pane: pane) else { toast("Can't read the mode line"); return false }
@@ -146,8 +146,8 @@ public final class Executor {
             if seen.contains(cur) && cur != target && seen.count > 1 && cur == seen.first { break }
             seen.insert(cur)
         }
-        if cur == target { toast("Mode: \(PadctlCore.Looks.modeLabel(target))"); return true }
-        toast("Couldn't reach \(PadctlCore.Looks.modeLabel(target)) mode (now \(PadctlCore.Looks.modeLabel(cur)))")
+        if cur == target { toast("Mode: \(PaddingtonCore.Looks.modeLabel(target))"); return true }
+        toast("Couldn't reach \(PaddingtonCore.Looks.modeLabel(target)) mode (now \(PaddingtonCore.Looks.modeLabel(cur)))")
         return false
     }
 

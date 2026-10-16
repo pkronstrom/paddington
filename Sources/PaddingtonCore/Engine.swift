@@ -683,9 +683,9 @@ public final class Engine {
         case .menu(let path): steps.append(.menu(path))
         case .script(let name):
             guard let url = config.scriptURL(name, layer: layer) else { steps.append(.toast("Script '\(name)' not found or not executable")); return }
-            var env = ["PADCTL_CONTROL": control, "PADCTL_LAYER": layer.id, "PADCTL_APP": ctx.app]
+            var env = ["PADDINGTON_CONTROL": control, "PADDINGTON_LAYER": layer.id, "PADDINGTON_APP": ctx.app]
             if let p = pane ?? ctx.focusedPane {
-                env["PADCTL_PANE"] = p.paneId; env["PADCTL_PANE_PATH"] = p.path; env["PADCTL_SESSION"] = p.session
+                env["PADDINGTON_PANE"] = p.paneId; env["PADDINGTON_PANE_PATH"] = p.path; env["PADDINGTON_SESSION"] = p.session
             }
             steps.append(.script(url.path, env: env))
         case .layer(let id, let act, let timeout):
@@ -833,7 +833,7 @@ public final class Engine {
         if config.device.hardwareOnly.contains(control) {
             return Appearance(label: config.device.layout.labels[control] ?? control, color: nil, blink: false, bound: false, detail: "hardware only")
         }
-        // The banks send no MIDI of their own, so padctl only learns the bank from the next press. The legend
+        // The banks send no MIDI of their own, so paddington only learns the bank from the next press. The legend
         // therefore never guesses: a pad/knob shows its bank-A action, with the bank-B one printed above it.
         let on = control.hasPrefix("pad") || control.hasPrefix("knob") ? shiftHeld : shiftActive(for: control)
         var a = appearance(control, ctx: ctx, snap: snap, shift: on)

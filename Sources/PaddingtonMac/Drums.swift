@@ -1,13 +1,13 @@
 import Foundation
-import PadctlCore
+import PaddingtonCore
 
-/// Runs padbeat (the stand-alone MIDI drum player next to the padctl binary) and keeps its note map current:
+/// Runs padbeat (the stand-alone MIDI drum player next to the paddington binary) and keeps its note map current:
 /// every pad note whose binding only plays a sample file (drums on empty window pads) → that file.
-/// padbeat listens to the pad's MIDI itself, so drum hits never wait for padctl. It acknowledges each map
+/// padbeat listens to the pad's MIDI itself, so drum hits never wait for paddington. It acknowledges each map
 /// generation in drums.json.ack once loaded and audible; only acknowledged notes are left to it.
 public final class DrumSidecar {
     static var dir: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/padctl")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/paddington")
     }
     public static var mapPath: String { dir.appendingPathComponent("drums.json").path }
     static var ackPath: String { mapPath + ".ack" }

@@ -22,7 +22,7 @@ public final class InputWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         previous = NSWorkspace.shared.frontmostApplication
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 118),
                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        w.title = "padctl — \(prompt)"
+        w.title = "Paddington — \(prompt)"
         // above floating terminals (an iTerm hotkey window sits at level 22) and on every Space, like the legend
         w.level = .statusBar
         w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -54,8 +54,8 @@ public final class InputWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         }
     }
 
-    /// macOS 14+ treats activation as a request another app can win; Accessibility (which padctl has)
-    /// makes padctl frontmost the way window managers do.
+    /// macOS 14+ treats activation as a request another app can win; Accessibility (which paddington has)
+    /// makes paddington frontmost the way window managers do.
     static func takeFocus() {
         NSApp.activate(ignoringOtherApps: true)
         if !NSApp.isActive {

@@ -1,7 +1,7 @@
 # Claude Code ruleset: a tmux pane running `claude`. Rows 1–2, buttons, knobs 1–6, Last window (11), New (15) and
 # Close (16) come from tmux.toml; this file sets the agent verbs (9–10, 13–14) and knobs 7–8 (model, thinking).
 # Layout grammar: see default.toml.
-# Agent status comes from `padctl hooks install` (observe-only Claude Code hooks).
+# Agent status comes from `paddington hooks install` (observe-only Claude Code hooks).
 
 name    = "Claude Code"
 kind    = "base"
@@ -13,7 +13,7 @@ play  = { label = "Submit", keys = "enter", color = "ok", hold = { legend = "sho
 pause = { label = "Esc",    keys = "esc", look = "agent_working", desc = "Esc on press: once clears, twice interrupts · lit while the agent works" }
 
 # ── row 3: Compact · Rewind · (Last window) · free — bank B: /clear · /resume
-pad9  = { label = "Compact", text = "/compact\n", color = "act", look = "context_meter", desc = "/compact — colour shows context use: green < 50 %, yellow, red > 80 % (needs padctl statusline-tap)" }
+pad9  = { label = "Compact", text = "/compact\n", color = "act", look = "context_meter", desc = "/compact — colour shows context use: green < 50 %, yellow, red > 80 % (needs paddington statusline-tap)" }
 pad10 = { label = "Rewind",  text = "/rewind\n", then = "menu-nav", then_steps = 2, color = "act", desc = "/rewind — knob ↑↓, green ✓ selects (twice), red ✕ back" }
 pad12 = { color = "off" }                                    # free: dark and does nothing — put your own action here
 

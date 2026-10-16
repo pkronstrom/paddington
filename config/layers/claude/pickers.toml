@@ -34,7 +34,7 @@ run   = { mode = "{item}" }
 
 [prompts]
 title  = "Prompt"
-# Markdown files in ~/.config/padctl/prompts/ (shared by Claude and Codex) and <ruleset>/prompts/:
+# Markdown files in ~/.config/paddington/prompts/ (shared by Claude and Codex) and <ruleset>/prompts/:
 # optional front matter `label: …`, then the text. It's pasted without Enter so you can edit it first.
 source = "prompts"
 run    = { prompt = "{item}" }

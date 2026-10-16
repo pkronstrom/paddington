@@ -1,10 +1,10 @@
 // padbeat — a minimal MIDI drum player.
 //
 // Listens to MIDI note-ons and plays a sample for each mapped note: preloaded buffers, 16 voices (hits layer
-// instead of cutting each other off), loudness follows velocity. It knows nothing about padctl: it reads one
+// instead of cutting each other off), loudness follows velocity. It knows nothing about paddington: it reads one
 // JSON map, applies it when its contents change, and acknowledges it in <map>.ack once it can play it.
 //
-//   padbeat [map.json]   (default: ~/Library/Application Support/padctl/drums.json)
+//   padbeat [map.json]   (default: ~/Library/Application Support/paddington/drums.json)
 //
 //   { "generation": 7,                                     // echoed in the .ack file
 //     "source": "SMC-PAD",                                 // MIDI sources whose name contains this ("" = all)
@@ -20,10 +20,10 @@ import CoreMIDI
 import Foundation
 
 let mapPath = CommandLine.arguments.dropFirst().first
-    ?? NSHomeDirectory() + "/Library/Application Support/padctl/drums.json"
+    ?? NSHomeDirectory() + "/Library/Application Support/paddington/drums.json"
 let ackPath = mapPath + ".ack"
 let parent = getppid()
-signal(SIGPIPE, SIG_IGN)   // stderr goes to padctl through a pipe
+signal(SIGPIPE, SIG_IGN)   // stderr goes to paddington through a pipe
 
 func log(_ s: String) { FileHandle.standardError.write(Data("padbeat: \(s)\n".utf8)) }
 
@@ -238,7 +238,7 @@ MIDIInputPortCreateWithProtocol(client, "padbeat-in" as CFString, ._1_0, &port) 
     }
 }
 
-// SIGUSR1: report state on stderr (padctl logs it)
+// SIGUSR1: report state on stderr (paddington logs it)
 signal(SIGUSR1, SIG_IGN)
 let usr1 = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 usr1.setEventHandler { kit.queue.async { log(kit.report() + " sources=\(connected.count)") } }
@@ -248,7 +248,7 @@ usr1.resume()
 var applied: Data?
 var badMapLogged = false
 func tick() {
-    if getppid() != parent { exit(0) }    // padctl is gone
+    if getppid() != parent { exit(0) }    // paddington is gone
     let data = FileManager.default.contents(atPath: mapPath) ?? Data("{\"notes\":[]}".utf8)
     if data != applied {
         let ok = kit.queue.sync { kit.apply(data) }

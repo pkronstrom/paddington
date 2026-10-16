@@ -1,4 +1,4 @@
-# padctl settings. Reloads automatically when saved.
+# Paddington settings. Reloads automatically when saved.
 
 device = "m-vave-smc-pad"          # file in devices/
 
@@ -60,7 +60,7 @@ cowbell  = "sounds/tr707/CowBell.wav@4"
 mode = "live"                      # live: groups + agent status · groups: group colours only · off
 brightness = 1.0                   # pads in general (0–1)
 window_brightness = 0.3            # other windows' pads; the current window is always full brightness
-night = 0.3                        # padctl menu › Dim pad lights (night) multiplies every level by this
+night = 0.3                        # Paddington menu › Dim pad lights (night) multiplies every level by this
 # colours by group / status / mode — override any, e.g.:
 # nav = "#0000ff"                  # windows
 # working = "#00ffff"

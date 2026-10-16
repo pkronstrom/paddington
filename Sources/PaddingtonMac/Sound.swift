@@ -1,5 +1,5 @@
 import AppKit
-import PadctlCore
+import PaddingtonCore
 
 /// Short feedback sounds. Names resolve through config [sounds] (categories and named sounds),
 /// then as a built-in ("tick", "click"), a macOS system sound (Tink, Pop, …) or a file path (relative = config folder).

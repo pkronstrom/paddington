@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import ServiceManagement
 import Foundation
-import PadctlCore
+import PaddingtonCore
 @_silgen_name("sandbox_check") func sandbox_check(_ pid: pid_t, _ operation: UnsafePointer<CChar>?, _ type: Int32) -> Int32
 
 /// The running app: wires MIDI, Bluetooth, context, engine, executor, agent state and UI together.
@@ -41,9 +41,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var lastUnmappedToast = Date.distantPast
 
     var now: Double { Date().timeIntervalSince1970 }
-    /// PADCTL_TEST=1: no permission prompts, no Bluetooth, no iTerm scripting; PADCTL_FAKE_APP overrides the frontmost app.
-    let testMode = ProcessInfo.processInfo.environment["PADCTL_TEST"] == "1"
-    let fakeApp = ProcessInfo.processInfo.environment["PADCTL_FAKE_APP"]
+    /// PADDINGTON_TEST=1: no permission prompts, no Bluetooth, no iTerm scripting; PADDINGTON_FAKE_APP overrides the frontmost app.
+    let testMode = ProcessInfo.processInfo.environment["PADDINGTON_TEST"] == "1"
+    let fakeApp = ProcessInfo.processInfo.environment["PADDINGTON_FAKE_APP"]
 
     public override init() { super.init() }
 
@@ -86,7 +86,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         server.handler = { [weak self] req in self?.handle(req) ?? ["ok": false] }
         do { try server.start() } catch let e as AlreadyRunning {
             Log.write("exit: \(e)")
-            FileHandle.standardError.write(Data("padctl: \(e)\n".utf8))
+            FileHandle.standardError.write(Data("paddington: \(e)\n".utf8))
             exit(0)
         } catch { lastError = "socket: \(error)" }
 
@@ -188,7 +188,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         var c = Context()
         if let fake = fakeApp {
             c.app = fake; c.appName = fake
-            c.windowTitle = ProcessInfo.processInfo.environment["PADCTL_FAKE_TITLE"] ?? ""
+            c.windowTitle = ProcessInfo.processInfo.environment["PADDINGTON_FAKE_TITLE"] ?? ""
         } else if let front = NSWorkspace.shared.frontmostApplication {
             // alerts, permission prompts and overlay helpers (accessory apps) don't count: keep the last regular app
             if front.activationPolicy == .regular || lastRegularApp?.isTerminated != false { lastRegularApp = front }
@@ -213,7 +213,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         } catch {
             if !tmuxFailing {
                 tmuxFailing = true; Log.write("\(error)")
-                if Self.sandboxed { lastError = "padctl was started inside a sandbox and can't reach tmux — quit it and start it again from Spotlight or `padctl start` in a normal terminal" }
+                if Self.sandboxed { lastError = "Paddington was started inside a sandbox and can't reach tmux — quit it and start it again from Spotlight or `paddington start` in a normal terminal" }
                 else { legend.toast("tmux: \(error)") }
             }
             c.panes = Date().timeIntervalSince(lastPanesAt) < 10 ? context.panes : []
@@ -335,15 +335,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     func midiMessage(_ m: MIDIMessage, source: String) {
         guard let cfg = config, let dec = decoder, !paused else { return }
-        // a test instance must not act on the real pad too (every press would run twice); PADCTL_TEST_MIDI=1 allows it
-        if testMode, ProcessInfo.processInfo.environment["PADCTL_TEST_MIDI"] != "1" { return }
+        // a test instance must not act on the real pad too (every press would run twice); PADDINGTON_TEST_MIDI=1 allows it
+        if testMode, ProcessInfo.processInfo.environment["PADDINGTON_TEST_MIDI"] != "1" { return }
         guard cfg.device.match.isEmpty || source.localizedCaseInsensitiveContains(cfg.device.match) else { return }
         lastPadMessage = Date()
         let events = dec.decode(m)
         if events.isEmpty {
             if m.isNoteOn || (m.isCC && m.data2 > 0), Date().timeIntervalSince(lastUnmappedToast) > 3 {
                 lastUnmappedToast = Date()
-                legend.toast("Unmapped: \(m.description) — run `padctl learn`")
+                legend.toast("Unmapped: \(m.description) — run `paddington learn`")
             }
             return
         }
@@ -426,7 +426,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var latchTranscript: Int64 = 0      // newest transcript when hands-free started: a newer one means it already ended
     var talkUpTranscript: Int64 = 0     // newest transcript when ● was let go: VoiceInk's text for that comes after it
     var swallowPlayUp = false
-    var injectingPlay = false           // the ▶ padctl presses itself once the text is in: never caught again here
+    var injectingPlay = false           // the ▶ paddington presses itself once the text is in: never caught again here
 
     /// A finished VoiceInk transcript newer than `id` (VoiceInk saves each recording once it's transcribed).
     func transcriptDone(after id: Int64) -> (id: Int64, text: String)? {
@@ -497,7 +497,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         func poll() {
             if let t = transcriptDone(after: before) {
                 // the transcript is saved; give the paste a moment, then Enter through the normal ▶ binding —
-                // pressed as padctl's own ▶, so this code doesn't catch it again
+                // pressed as paddington's own ▶, so this code doesn't catch it again
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
                     guard let self else { return }
                     Log.write("talk: “\(t.text)” is in — Enter")
@@ -520,7 +520,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             switch o {
             case .plan(let p):
                 // a drum hit from the pad was already played by padbeat (it listens to the MIDI itself)
-                // only notes padbeat has acknowledged for the current map; otherwise padctl plays it itself
+                // only notes padbeat has acknowledged for the current map; otherwise paddington plays it itself
                 let byPadbeat = midiNote.map { drums.plays($0) } ?? false
                 if let s = config?.settings, !(byPadbeat && p.steps.isEmpty) { sounds.play(p.sound, settings: s) }
                 if !p.steps.isEmpty { executor.run(p) }
@@ -597,7 +597,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         m.connection = conn
         var footer: [String] = []
         if let err = lastError { footer.append("⚠︎ \(err)") }
-        if cfg.device.provisional { footer.append("Device profile is a guess — run `padctl learn` with the pad connected.") }
+        if cfg.device.provisional { footer.append("Device profile is a guess — run `paddington learn` with the pad connected.") }
         if let r = snap["agents.oldest_waiting.reason"].string, let w = snap["agents.oldest_waiting.window"].int {
             footer.append("Waiting: window \(w) (\(r))")
         }
@@ -622,7 +622,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         button.image = Self.padIcon(connected: connected)
         button.imagePosition = text.isEmpty ? .imageOnly : .imageLeading
         button.title = text.isEmpty ? "" : " \(text)"
-        button.toolTip = connected ? "padctl — pad connected" : "padctl — pad not connected"
+        button.toolTip = connected ? "Paddington — pad connected" : "Paddington — pad not connected"
     }
 
     static func padIcon(connected: Bool) -> NSImage {
@@ -694,7 +694,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         func info(_ s: String) { let i = NSMenuItem(title: s, action: nil, keyEquivalent: ""); i.isEnabled = false; menu.addItem(i) }
         func item(_ s: String, _ sel: Selector, _ key: String = "") { let i = NSMenuItem(title: s, action: sel, keyEquivalent: key); i.target = self; menu.addItem(i) }
-        info("padctl \(Padctl.version)")
+        info("Paddington \(Paddington.version)")
         info(padSourcePresent ? "Pad: connected (\(config?.device.name ?? ""))" : "Pad: \(ble?.status ?? "not connected")")
         info("Layer: \(path)")
         if let e = lastError { info("⚠︎ \(e.prefix(120))") }
@@ -722,7 +722,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         sounds.state = agentSounds ? .on : .off
         menu.addItem(sounds)
         menu.addItem(.separator())
-        item("Quit padctl", #selector(quit), "q")
+        item("Quit Paddington", #selector(quit), "q")
         statusItem.menu = menu
     }
 
@@ -738,7 +738,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     @objc func togglePause() {
         paused.toggle()
         if paused, let e = engine { process(e.releaseAll()) }
-        legend.toast(paused ? "padctl paused" : "padctl resumed")
+        legend.toast(paused ? "Paddington paused" : "Paddington resumed")
         render()
     }
     @objc func quit() { drums.stop(); NSApp.terminate(nil) }
@@ -783,15 +783,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
         menuSignature = ""
         render()
     }
-    /// A launchd agent inside the bundle (Contents/Library/LaunchAgents): starts padctl at login and, unlike a
+    /// A launchd agent inside the bundle (Contents/Library/LaunchAgents): starts paddington at login and, unlike a
     /// plain login item, starts it again if it crashes (KeepAlive on a failed exit). Quit from the menu stays quit.
     static let agentLabel = "com.pkronstrom.padctl.agent"
     static let loginAgent = SMAppService.agent(plistName: "\(agentLabel).plist")
 
     @objc func toggleLogin() {
         do {
-            if Self.loginAgent.status == .enabled { try Self.loginAgent.unregister(); legend.toast("padctl won't start at login") }
-            else { try Self.loginAgent.register(); legend.toast("padctl starts at login and restarts after a crash") }
+            if Self.loginAgent.status == .enabled { try Self.loginAgent.unregister(); legend.toast("Paddington won't start at login") }
+            else { try Self.loginAgent.register(); legend.toast("Paddington starts at login and restarts after a crash") }
         } catch { legend.toast("Login item: \(error.localizedDescription)") }
         menuSignature = ""
         rebuildMenu()
@@ -845,7 +845,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             }
             return ["ok": true, "layer": engine?.layerPath(context, now: now) ?? ""]
         case "status":
-            return ["ok": true, "version": Padctl.version, "connected": padSourcePresent, "bluetooth": ble?.status ?? "",
+            return ["ok": true, "version": Paddington.version, "connected": padSourcePresent, "bluetooth": ble?.status ?? "",
                     "layer": engine?.layerPath(context, now: now, snap: snapshot()) ?? "", "error": lastError ?? NSNull(),
                     "warnings": config?.warnings ?? [], "app": context.app, "pane": context.focusedPane?.paneId ?? NSNull(),
                     "tty": clientTTY ?? NSNull(), "tmux_panes": context.panes.count,

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PadctlCore
+@testable import PaddingtonCore
 
 let repoConfig = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Observe-only agent hooks. Entries are recognised by "padctl hook ".
+/// Observe-only agent hooks. Entries are recognised by "paddington hook " (or "padctl hook ", the old name).
 /// Claude Code: ~/.claude/settings.json · Codex: ~/.codex/hooks.json (same event → matcher group → handlers shape).
 public enum HooksInstaller {
     public static let events = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
@@ -9,8 +9,11 @@ public enum HooksInstaller {
     public static let codexEvents = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
                                      "PostToolUse", "PreCompact", "PostCompact", "Stop", "Interrupt"]
 
-    static var settingsPath: String { ProcessInfo.processInfo.environment["PADCTL_CLAUDE_SETTINGS"] ?? NSHomeDirectory() + "/.claude/settings.json" }
-    static var codexPath: String { ProcessInfo.processInfo.environment["PADCTL_CODEX_HOOKS"] ?? NSHomeDirectory() + "/.codex/hooks.json" }
+    /// Commands that are ours: the current name and the old one (padctl), so install replaces old entries.
+    static let markers = ["paddington hook ", "padctl hook "]
+
+    static var settingsPath: String { ProcessInfo.processInfo.environment["PADDINGTON_CLAUDE_SETTINGS"] ?? NSHomeDirectory() + "/.claude/settings.json" }
+    static var codexPath: String { ProcessInfo.processInfo.environment["PADDINGTON_CODEX_HOOKS"] ?? NSHomeDirectory() + "/.codex/hooks.json" }
 
     public static func installCodex(binary: String, uninstallOnly: Bool = false) -> (ok: Bool, message: String) {
         let path = codexPath
@@ -30,20 +33,21 @@ public enum HooksInstaller {
     }
 
     static func edit(path: String, binary: String, events: [String], uninstallOnly: Bool) -> (ok: Bool, message: String) {
-        let backup = path + ".padctl-backup"
+        let backup = path + ".paddington-backup"
         try? FileManager.default.removeItem(atPath: backup)
         do { try FileManager.default.copyItem(atPath: path, toPath: backup) } catch { return (false, "backup failed: \(error)") }
         let script = """
         import json, sys
         path, binary, mode = sys.argv[1], sys.argv[2], sys.argv[3]
         events = sys.argv[4].split(",")
+        markers = sys.argv[5].split(",")
         with open(path) as f: data = json.load(f)
         hooks = data.setdefault("hooks", {})
         removed = 0
         for ev in list(hooks.keys()):
             groups = []
             for g in hooks[ev]:
-                hs = [h for h in g.get("hooks", []) if "padctl hook " not in h.get("command", "")]
+                hs = [h for h in g.get("hooks", []) if not any(m in h.get("command", "") for m in markers)]
                 removed += len(g.get("hooks", [])) - len(hs)
                 if hs: g["hooks"] = hs; groups.append(g)
             if groups: hooks[ev] = groups
@@ -59,16 +63,18 @@ public enum HooksInstaller {
         print(f"removed {removed}, added {added}")
         """
         let r = Shell.run(["python3", "-I", "-c", script, path, binary, uninstallOnly ? "uninstall" : "install",
-                           events.joined(separator: ",")], timeout: 15)
+                           events.joined(separator: ","), markers.joined(separator: ",")], timeout: 15)
         guard r.ok else { return (false, "edit failed: \(r.err)") }
         return (true, "\(r.out.trimmingCharacters(in: .whitespacesAndNewlines)) — backup at \(backup)")
     }
 
-    public static func installed() -> Bool {
-        (try? String(contentsOfFile: settingsPath, encoding: .utf8))?.contains("padctl hook ") ?? false
-    }
+    public static func installed() -> Bool { has(settingsPath, markers) }
+    public static func codexInstalled() -> Bool { has(codexPath, markers) }
+    /// Still installed under the old name: they work (the build keeps a `padctl` link), `hooks install` renames them.
+    public static func oldName() -> Bool { has(settingsPath, ["padctl hook "]) || has(codexPath, ["padctl hook "]) }
 
-    public static func codexInstalled() -> Bool {
-        (try? String(contentsOfFile: codexPath, encoding: .utf8))?.contains("padctl hook ") ?? false
+    static func has(_ path: String, _ marks: [String]) -> Bool {
+        guard let s = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+        return marks.contains { s.contains($0) }
     }
 }

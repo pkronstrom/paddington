@@ -1,6 +1,6 @@
 import CoreMIDI
 import Foundation
-import PadctlCore
+import PaddingtonCore
 
 public struct MIDIEndpointInfo: Equatable {
     public var ref: MIDIEndpointRef
@@ -22,13 +22,13 @@ public final class MIDIService {
     public init() {}
 
     public func start() throws {
-        var st = MIDIClientCreateWithBlock("padctl" as CFString, &client) { [weak self] note in
+        var st = MIDIClientCreateWithBlock("paddington" as CFString, &client) { [weak self] note in
             if note.pointee.messageID == .msgSetupChanged {
                 DispatchQueue.main.async { self?.refresh(); self?.onSetupChanged?() }
             }
         }
         guard st == noErr else { throw NSError(domain: "MIDI", code: Int(st), userInfo: [NSLocalizedDescriptionKey: "MIDIClientCreate failed (\(st))"]) }
-        st = MIDIInputPortCreateWithProtocol(client, "padctl-in" as CFString, ._1_0, &inPort) { [weak self] list, srcRef in
+        st = MIDIInputPortCreateWithProtocol(client, "paddington-in" as CFString, ._1_0, &inPort) { [weak self] list, srcRef in
             let name = srcRef.map { Unmanaged<NSString>.fromOpaque($0).takeUnretainedValue() as String } ?? "?"
             var msgs: [MIDIMessage] = []
             for packet in list.unsafeSequence() {
@@ -51,7 +51,7 @@ public final class MIDIService {
             DispatchQueue.main.async { msgs.forEach { self?.onMessage?($0, name) } }
         }
         guard st == noErr else { throw NSError(domain: "MIDI", code: Int(st), userInfo: [NSLocalizedDescriptionKey: "MIDIInputPortCreate failed (\(st))"]) }
-        MIDIOutputPortCreate(client, "padctl-out" as CFString, &outPort)
+        MIDIOutputPortCreate(client, "paddington-out" as CFString, &outPort)
         refresh()
     }
 

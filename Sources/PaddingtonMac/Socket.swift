@@ -3,16 +3,16 @@ import Foundation
 
 public struct AlreadyRunning: Error, CustomStringConvertible {
     public let path: String
-    public var description: String { "another padctl is already running (\(path))" }
+    public var description: String { "another Paddington is already running (\(path))" }
 }
 
 /// One JSON object per line in each direction, one request per connection.
 public enum ControlSocket {
     public static var path: String {
-        if let p = ProcessInfo.processInfo.environment["PADCTL_SOCKET"] { return p }
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/padctl")
+        if let p = ProcessInfo.processInfo.environment["PADDINGTON_SOCKET"] { return p }
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/paddington")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("padctl.sock").path
+        return dir.appendingPathComponent("paddington.sock").path
     }
 
     static func address(_ path: String) -> sockaddr_un {
@@ -87,7 +87,7 @@ public final class ControlServer {
     private func accept() {
         let c = Darwin.accept(fd, nil, nil)
         guard c >= 0 else { return }
-        // hooks call with a 0.2 s timeout and may hang up before the reply: writing then must fail, not kill padctl
+        // hooks call with a 0.2 s timeout and may hang up before the reply: writing then must fail, not kill paddington
         var one: Int32 = 1
         setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
         DispatchQueue.global().async { [weak self] in

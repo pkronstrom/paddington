@@ -3,7 +3,7 @@ import Foundation
 import SQLite3
 
 /// Catches what the user dictated while a search box is open, without relying on the dictation app pasting
-/// into padctl's window (VoiceInk transcribes but doesn't paste there). Two sources, whichever comes first:
+/// into paddington's window (VoiceInk transcribes but doesn't paste there). Two sources, whichever comes first:
 /// a new row in VoiceInk's transcript history (read-only), or new text on the clipboard (other tools).
 public final class DictationWatcher {
     static let voiceInkStore = NSHomeDirectory() + "/Library/Application Support/com.prakashjoshipax.VoiceInk/default.store"

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Everything loaded from ~/.config/padctl. Immutable; a reload builds a new one.
+/// Everything loaded from ~/.config/paddington. Immutable; a reload builds a new one.
 public struct Config {
     public var root: URL
     public var settings: Settings
@@ -10,8 +10,8 @@ public struct Config {
     public var warnings: [String]
 
     public static var defaultRoot: URL {
-        if let p = ProcessInfo.processInfo.environment["PADCTL_CONFIG"] { return URL(fileURLWithPath: p) }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/padctl")
+        if let p = ProcessInfo.processInfo.environment["PADDINGTON_CONFIG"] { return URL(fileURLWithPath: p) }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/paddington")
     }
 
     public static func load(root: URL = defaultRoot) throws -> Config {

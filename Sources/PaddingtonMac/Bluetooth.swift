@@ -65,7 +65,7 @@ public final class BLEMIDIConnector: NSObject, CBCentralManagerDelegate, CBPerip
     public func centralManagerDidUpdateState(_ c: CBCentralManager) {
         switch c.state {
         case .poweredOn: startScan()
-        case .unauthorized: report("Bluetooth permission denied — allow padctl in System Settings › Privacy › Bluetooth")
+        case .unauthorized: report("Bluetooth permission denied — allow Paddington in System Settings › Privacy › Bluetooth")
         case .poweredOff: report("Bluetooth is off")
         default: report("Bluetooth unavailable (\(c.state.rawValue))")
         }
