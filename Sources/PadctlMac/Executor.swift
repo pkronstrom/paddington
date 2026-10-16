@@ -103,6 +103,7 @@ public final class Executor {
             case .focusWindow(let id): try WindowList.focus(id)
             case .pressButton(let names): try Menu.pressButton(names)
             case .cycleTab(let next): try Menu.cycleTab(next: next)
+            case .mediaKey(let k): Menu.mediaKey(k)
             case .openApp(let app):
                 // `open` sends a Dock click (reopen): a window appears even if the app had none — and iTerm shows
                 // its hotkey window. Bundle ids go by -b, names by -a.
@@ -175,6 +176,20 @@ public final class Executor {
 
 /// Click a menu item of the frontmost app through Accessibility.
 public enum Menu {
+    /// A media key as the keyboard sends it. Play / next / previous go to whatever is playing (a browser video —
+    /// Firefox and Chrome support media keys —, Music, Spotify); the volume keys change the Mac's volume in its own
+    /// steps (1/16) and show its volume HUD.
+    public static func mediaKey(_ name: String) {
+        // NX_KEYTYPE_PLAY / NEXT / PREVIOUS / SOUND_UP / SOUND_DOWN / MUTE
+        let key: Int32 = ["play": 16, "next": 17, "prev": 18, "volume_up": 0, "volume_down": 1, "mute": 7][name] ?? 16
+        for down in [true, false] {
+            let data1 = Int((key << 16) | ((down ? 0xa : 0xb) << 8))
+            let ev = NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: NSEvent.ModifierFlags(rawValue: down ? 0xa00 : 0xb00),
+                                        timestamp: 0, windowNumber: 0, context: nil, subtype: 8, data1: data1, data2: -1)
+            ev?.cgEvent?.post(tap: .cghidEventTap)
+        }
+    }
+
     /// Next / previous browser tab that wraps around: on the last tab "next" goes to the first (⌘1), on the first
     /// "previous" to the last (⌘9); otherwise ⌥⌘→ / ⌥⌘←. Where the selected tab is comes from the window's tab
     /// strip (Accessibility); if it can't be read, plain ⌥⌘→ / ⌥⌘← (no wrap).

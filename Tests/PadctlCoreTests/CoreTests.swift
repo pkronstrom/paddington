@@ -43,6 +43,35 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     }
 }
 
+@Suite struct TmuxToolsTests {
+    /// Hold > in a tmux / Claude / Codex pane: the tmux tools layer (legend up); one action and it closes.
+    @Test func holdRightOpensTmuxTools() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()                                    // Claude in window 2, pane %2
+        _ = e.handle(.down("right"), now: 0, ctx: ctx, snap: Snapshot())
+        _ = e.tick(now: 0.6, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("right"), now: 0.7, ctx: ctx, snap: Snapshot())
+        #expect(e.stack.last?.layer == "tmux-tools" && e.effectiveStack(ctx, Snapshot()).contains { $0.showsLegend })
+        #expect(plans(e.handle(.down("pad1"), now: 1, ctx: ctx, snap: Snapshot())).first?.steps
+                == [.tmux(["split-window", "-h", "-t", "%2", "-c", "/tmp/w2"])])
+        #expect(e.stack.isEmpty)                                    // one action and it closes
+        _ = e.handle(.up("pad1"), now: 1.1, ctx: ctx, snap: Snapshot())
+        // > again closes it without doing anything; a tap is still next window
+        _ = e.handle(.down("right"), now: 2, ctx: ctx, snap: Snapshot())
+        _ = e.tick(now: 2.6, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.up("right"), now: 2.7, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("right"), now: 3, ctx: ctx, snap: Snapshot())
+        #expect(e.stack.isEmpty)
+        _ = e.handle(.up("right"), now: 3.1, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("right"), now: 4, ctx: ctx, snap: Snapshot())
+        #expect(plans(e.handle(.up("right"), now: 4.1, ctx: ctx, snap: Snapshot())).first?.steps == [.tmux(["next-window", "-t", "main:"])])
+        // in Codex too
+        _ = e.handle(.down("right"), now: 5, ctx: itermContext(cmd: "codex"), snap: Snapshot())
+        _ = e.tick(now: 5.6, ctx: itermContext(cmd: "codex"), snap: Snapshot())
+        #expect(e.stack.last?.layer == "tmux-tools")
+    }
+}
+
 @Suite struct AgentsOverviewTests {
     /// Hold < anywhere: every agent on a pad, waiting ones first (blinking); tap one → iTerm forward on that pane.
     @Test func overviewSortsAndJumps() throws {
@@ -56,6 +85,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         }
         store.handle(event: "Stop", payload: ["session_id": .string("c")], pane: "%3", now: 2)
         store.handle(event: "PermissionRequest", payload: ["session_id": .string("b"), "tool_name": .string("Bash")], pane: "%2", now: 3)
+        store.showApproval(session: "b", now: 3)
         let snap = Snapshot.build(context: ctx, agents: store, custom: ["sounds.agents": .bool(true)], layerPath: "")
         // hold <: the overview opens (a tap would toggle iTerm instead)
         _ = e.handle(.down("left"), now: 10, ctx: ctx, snap: snap)
@@ -70,16 +100,39 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(p3.label == "1 · w1" && p3.note == "Claude working" && !p3.blink)
         #expect(p4.label == "" && p4.key == "off")
         #expect(plans(e.handle(.down("pad4"), now: 12, ctx: ctx, snap: snap)).isEmpty)       // no agent there
-        #expect(e.appearance("pad12", ctx: ctx, snap: snap).label == "🔔 Sounds on" && e.appearance("pad12", ctx: ctx, snap: snap).key == "ok")
+        #expect(e.appearance("pad15", ctx: ctx, snap: snap).bound == false)                   // row 4: only Sounds
+        #expect(e.appearance("pad13", ctx: ctx, snap: snap).label == "🔔 Sounds on" && e.appearance("pad13", ctx: ctx, snap: snap).key == "ok")
         var muted = snap; muted.values["sounds.agents"] = .bool(false)
-        #expect(e.appearance("pad12", ctx: ctx, snap: muted).label == "🔕 Sounds muted" && e.appearance("pad12", ctx: ctx, snap: muted).key == "danger")
-        #expect(plans(e.handle(.down("pad12"), now: 12.5, ctx: ctx, snap: snap)).first?.steps == [.setState("@sounds.agents", .string("toggle"))])
+        #expect(e.appearance("pad13", ctx: ctx, snap: muted).label == "🔕 Sounds muted" && e.appearance("pad13", ctx: ctx, snap: muted).key == "danger")
+        #expect(plans(e.handle(.down("pad13"), now: 12.5, ctx: ctx, snap: snap)).first?.steps == [.setState("@sounds.agents", .string("toggle"))])
         let jump = plans(e.handle(.down("pad1"), now: 13, ctx: ctx, snap: snap))
         #expect(jump.first?.steps == [.openApp("com.googlecode.iterm2"), .wait(0.2), .focusPane("%2")])
         #expect(e.stack.isEmpty && !e.effectiveStack(ctx, snap).contains { $0.showsLegend })   // …and goes with it
         // a quick tap of < still toggles iTerm
         _ = e.handle(.down("left"), now: 20, ctx: ctx, snap: snap)
         #expect(plans(e.handle(.up("left"), now: 20.1, ctx: ctx, snap: snap)).first?.steps == [.keys([try KeyChord.parse("ctrl+<")])])
+    }
+}
+
+@Suite struct QuestionNotApprovalTests {
+    /// Claude Code sends a PermissionRequest for its own AskUserQuestion: that stays a question (Choose layer),
+    /// never a flash of the red / green Allow? layer.
+    @Test func askUserQuestionPermissionIsAQuestion() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        let store = AgentStore()
+        let q: Value = .table(["questions": .array([.table(["question": .string("Which store?"), "options": .array([
+            .table(["label": .string("SQLite")]), .table(["label": .string("Redis")])])])])])
+        store.handle(event: "SessionStart", payload: ["session_id": .string("a")], pane: "%2", now: 0)
+        store.handle(event: "PreToolUse", payload: ["session_id": .string("a"), "tool_name": .string("AskUserQuestion"),
+                                                    "tool_use_id": .string("t"), "tool_input": q], pane: "%2", now: 1)
+        store.handle(event: "PermissionRequest", payload: ["session_id": .string("a"), "tool_name": .string("AskUserQuestion")], pane: "%2", now: 1.1)
+        #expect(store.agent(forPane: "%2")?.status == .needs_input)
+        let snap = Snapshot.build(context: ctx, agents: store, custom: [:], layerPath: "")
+        #expect(e.layerPath(ctx, now: 2, snap: snap).contains("Choose") && !e.layerPath(ctx, now: 2, snap: snap).contains("Allow?"))
+        // and a real permission prompt still asks yes / no, once it's on screen
+        store.handle(event: "PermissionRequest", payload: ["session_id": .string("b"), "tool_name": .string("Bash")], pane: "%3", now: 3)
+        #expect(store.showApproval(session: "b", now: 3.5) && store.agent(forPane: "%3")?.status == .needs_approval)
     }
 }
 
@@ -100,6 +153,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         // a question elsewhere comes first, even though it's newer
         store.handle(event: "SessionStart", payload: ["session_id": .string("b")], pane: "%3", now: 0)
         store.handle(event: "PermissionRequest", payload: ["session_id": .string("b"), "tool_name": .string("Bash")], pane: "%3", now: 9)
+        store.showApproval(session: "b", now: 9)
         snap = Snapshot.build(context: ctx, agents: store, custom: [:], layerPath: "")
         #expect(snap["agents.oldest_waiting"].string == "%3" && snap["agents.waiting"].int == 2)
         // seen: no longer waiting
@@ -120,6 +174,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         store.handle(event: "UserPromptSubmit", payload: ["session_id": .string("c1")], pane: "%2", now: 1)
         store.handle(event: "SessionStart", payload: ["session_id": .string("x1")], pane: "%9", now: 0)
         store.handle(event: "PermissionRequest", payload: ["session_id": .string("x1"), "tool_name": .string("Bash")], pane: "%9", now: 2)
+        store.showApproval(session: "x1", now: 2)
         let snap = Snapshot.build(context: ctx, agents: store, custom: [:], layerPath: "")
         let a = e.appearance("pad2", ctx: ctx, snap: snap)
         #expect(a.note == "Claude working\nCodex approve?")
@@ -275,19 +330,65 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
 }
 
 @Suite struct ApprovalTests {
-    /// Codex can settle a permission request itself (Guardian auto-review): the next tool call ends the wait.
-    @Test func nextToolCallEndsApprovalWait() {
+    /// Codex settles most permission requests itself (Guardian auto-review) without drawing a prompt: a request is
+    /// only "approve?" once its prompt is on screen, and the next tool call ends it either way.
+    @Test func approvalWaitsForThePromptOnScreen() {
         let st = AgentStore()
         let sid: [String: Value] = ["session_id": .string("s1"), "tool_name": .string("Bash")]
         st.handle(event: "SessionStart", payload: sid, pane: "%1", now: 0)
+        st.handle(event: "UserPromptSubmit", payload: sid, pane: "%1", now: 0.5)
         st.handle(event: "PermissionRequest", payload: sid, pane: "%1", now: 1)
-        #expect(st.agent(forPane: "%1")?.status == .needs_approval)
-        #expect(st.approvalWaits(now: 2).isEmpty && st.approvalWaits(now: 3.5).count == 1)
-        st.handle(event: "PreToolUse", payload: sid, pane: "%1", now: 4)
-        #expect(st.agent(forPane: "%1")?.status == .working)
+        #expect(st.agent(forPane: "%1")?.status == .working && st.approvalRequests.count == 1)   // no flash, no sound
+        st.handle(event: "PreToolUse", payload: sid, pane: "%1", now: 4)                         // Guardian said yes
+        #expect(st.approvalRequests.isEmpty && !st.showApproval(session: "s1", now: 4))
+        // a prompt that does show: waiting until it goes away
         st.handle(event: "PermissionRequest", payload: sid, pane: "%1", now: 5)
-        #expect(st.dismissApproval(session: "s1", now: 8))
-        #expect(st.agent(forPane: "%1")?.status == .working)
+        #expect(st.showApproval(session: "s1", now: 5.5) && st.agent(forPane: "%1")?.status == .needs_approval)
+        #expect(st.agent(forPane: "%1")?.reason == "Bash" && st.approvalRequests.isEmpty)
+        #expect(st.approvalWaits(now: 6).isEmpty && st.approvalWaits(now: 8).count == 1)
+        #expect(st.dismissApproval(session: "s1", now: 8) && st.agent(forPane: "%1")?.status == .working)
+        #expect(st.approvalRequests.count == 1)                                  // back on screen? asks again
+        st.handle(event: "PostToolUse", payload: sid, pane: "%1", now: 9)
+        #expect(st.approvalRequests.isEmpty)
+    }
+
+    /// The focused pane's agent asks permission (hook) but nothing is on screen: no Allow? layer. The prompt on
+    /// screen opens it.
+    @Test func allowLayerFollowsTheScreen() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()                                     // focused: %2
+        let store = AgentStore()
+        store.handle(event: "SessionStart", payload: ["session_id": .string("x")], pane: "%2", now: 0)
+        store.handle(event: "PermissionRequest", payload: ["session_id": .string("x"), "tool_name": .string("Bash")], pane: "%2", now: 1)
+        var snap = Snapshot.build(context: ctx, agents: store, custom: [:], layerPath: "")
+        #expect(!e.layerPath(ctx, now: 2, snap: snap).contains("Allow?"))
+        let screen = ScreenChoices.parse("""
+          Would you like to run the following command?
+        › 1. Yes, proceed (y)
+          2. No, and tell Codex what to do differently (esc)
+        """)!
+        store.showApproval(session: "x", now: 2)
+        snap = Snapshot.build(context: ctx, agents: store, custom: [:], layerPath: "")
+        snap.values.merge(screen.vars) { $1 }
+        #expect(e.layerPath(ctx, now: 3, snap: snap).contains("Allow?"))
+    }
+
+    /// Only Yes / No options under a cursor count — not a reply that asks "Would you like to…".
+    @Test func approvalOnScreen() {
+        let codex = """
+          Would you like to run the following command?
+            $ git push origin main
+        › 1. Yes, proceed (y)
+          2. Yes, and don't ask again for this command (a)
+          3. No, and tell Codex what to do differently (esc)
+        """
+        #expect(AgentStore.approvalShown(codex) && AgentStore.approvalStillShown(codex))
+        let reply = """
+        • Done — the build passes. Would you like to also update the docs?
+        › Summarize recent commits
+        """
+        #expect(!AgentStore.approvalShown(reply) && AgentStore.approvalStillShown(reply))
+        #expect(!AgentStore.approvalShown("• Running cargo test\n  └ 12 passed"))
     }
 }
 
@@ -524,7 +625,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
             #expect(a.label == "✕ Cancel" && a.key == "danger" && !a.blink)
         }
         #expect(plans(e.handle(.down("pad14"), now: 0, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
-        #expect(e.appearance("pad10", ctx: ctx, snap: snap).label == "⇄ Pane")         // row 3 stays the agent's
+        #expect(e.appearance("pad11", ctx: ctx, snap: snap).label == "Last window")    // row 3 stays the agent's
 
         let permit = ScreenChoices.parse("""
          Do you want to proceed?
@@ -600,13 +701,13 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func nextWaitingUsesSnapshot() throws {
         // the action is no longer on a pad by default (window pads blink); bind it for the test
         var cfg = try loadConfig()
-        cfg.layers["tmux"]?.bindings["pad12"] = try Binding.parse(.table(["agent": .string("next_waiting")]), ctx: "test")
+        cfg.layers["tmux"]?.bindings["pad11"] = try Binding.parse(.table(["agent": .string("next_waiting")]), ctx: "test")
         let e = Engine(config: cfg)
         let ctx = itermContext()
-        let none = plans(e.handle(.down("pad12"), now: 0, ctx: ctx, snap: Snapshot()))
+        let none = plans(e.handle(.down("pad11"), now: 0, ctx: ctx, snap: Snapshot()))
         #expect(none.first?.steps == [.toast("No agent is waiting")])
         let snap = Snapshot(values: ["agents.oldest_waiting": .string("%3")])
-        #expect(plans(e.handle(.down("pad12"), now: 1, ctx: ctx, snap: snap)).first?.steps == [.focusPane("%3")])
+        #expect(plans(e.handle(.down("pad11"), now: 1, ctx: ctx, snap: snap)).first?.steps == [.focusPane("%3")])
     }
 
     @Test func promptFileIsInterpolated() throws {
@@ -675,7 +776,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func rewindEntersMenuNavForTwoSelects() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        _ = e.handle(.down("pad11"), now: 0, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad10"), now: 0, ctx: ctx, snap: Snapshot())
         #expect(e.stack.last?.layer == "menu-nav")
         let down = try KeyChord.parse("down")
         #expect(plans(e.handle(.turn("knob1", 1), now: 1, ctx: ctx, snap: Snapshot())).first?.steps == [.tmuxKeys(pane: "%2", [down])])
@@ -739,8 +840,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func menuNavIsGreenAndRed() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
-        _ = e.handle(.down("pad11"), now: 0, ctx: ctx, snap: Snapshot())         // Rewind
-        _ = e.handle(.up("pad11"), now: 0.1, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad10"), now: 0, ctx: ctx, snap: Snapshot())         // Rewind
+        _ = e.handle(.up("pad10"), now: 0.1, ctx: ctx, snap: Snapshot())
         #expect(plans(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: Snapshot())).isEmpty)   // off
         let p = plans(e.handle(.down("pad11"), now: 1, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("enter")])])
@@ -748,8 +849,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         _ = e.handle(.down("pad7"), now: 2, ctx: ctx, snap: Snapshot())
         #expect(e.stack.isEmpty)
         // red: Esc, and the menu mode ends at once
-        _ = e.handle(.down("pad11"), now: 3, ctx: ctx, snap: Snapshot())         // Rewind again
-        _ = e.handle(.up("pad11"), now: 3.1, ctx: ctx, snap: Snapshot())
+        _ = e.handle(.down("pad10"), now: 3, ctx: ctx, snap: Snapshot())         // Rewind again
+        _ = e.handle(.up("pad10"), now: 3.1, ctx: ctx, snap: Snapshot())
         #expect(plans(e.handle(.down("pad13"), now: 3.2, ctx: ctx, snap: Snapshot())).isEmpty)                 // off
         #expect(plans(e.handle(.down("pad6"), now: 3.5, ctx: ctx, snap: Snapshot())).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
         #expect(e.stack.isEmpty)
@@ -800,7 +901,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let ctx = itermContext()
         let a = e.appearance("pad9", ctx: ctx, snap: Snapshot())
         #expect(a.label.hasPrefix("Compact") && a.altLabel == "/clear")
-        #expect(e.appearance("pad11", ctx: ctx, snap: Snapshot()).altLabel == "/resume")
+        #expect(e.appearance("pad10", ctx: ctx, snap: Snapshot()).altLabel == "/resume")
         e.padBank = "B"
         let b = e.appearance("pad9", ctx: ctx, snap: Snapshot())
         #expect(b.label.hasPrefix("Compact") && b.altLabel == "/clear")   // fixed: bank A on the face, bank B above
@@ -916,6 +1017,35 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     }
 }
 
+@Suite struct VideoTests {
+    /// A fullscreen video in the browser (any site): the Video layer — media keys, seek, the Mac's volume.
+    @Test func fullscreenVideoLayer() throws {
+        let e = Engine(config: try loadConfig())
+        var ctx = Context(); ctx.app = "org.mozilla.firefox"; ctx.appName = "Firefox"
+        ctx.windowTitle = "Someone on X: \"a video\" / X"
+        #expect(e.baseLayer(ctx).id == "browser")
+        ctx.fullscreen = true
+        #expect(e.baseLayer(ctx).id == "video")
+        #expect(plans(e.handle(.down("pad6"), now: 0, ctx: ctx, snap: Snapshot())).first?.steps == [.mediaKey("play")])
+        #expect(plans(e.handle(.down("pad4"), now: 0.01, ctx: ctx, snap: Snapshot())).first?.steps == [.keys(try KeyChord.parseSequence("right right right"))])
+        #expect(plans(e.handle(.down("pad16"), now: 0.02, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("esc")])])
+        // volume: the Mac's volume keys (HUD, 1/16 a click) — clockwise is louder
+        #expect(plans(e.handle(.turn("knob1", 1), now: 0.05, ctx: ctx, snap: Snapshot())).first?.steps == [.mediaKey("volume_up")])
+        #expect(plans(e.handle(.turn("knob1", -1), now: 0.06, ctx: ctx, snap: Snapshot())).first?.steps == [.mediaKey("volume_down")])
+        #expect(plans(e.handle(.down("pad3"), now: 0.1, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("right")])])
+        // nothing from the browser underneath: rows 3–4 and the other knobs are off; < still toggles iTerm
+        #expect(e.appearance("pad15", ctx: ctx, snap: Snapshot()).bound == false && e.appearance("knob3", ctx: ctx, snap: Snapshot()).bound == false)
+        #expect(plans(e.handle(.down("pad12"), now: 0.2, ctx: ctx, snap: Snapshot())).isEmpty && e.appearance("pad8", ctx: ctx, snap: Snapshot()).bound == false)
+        _ = e.handle(.down("left"), now: 0.3, ctx: ctx, snap: Snapshot())
+        #expect(plans(e.handle(.up("left"), now: 0.35, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("ctrl+<")])])
+        // YouTube and meetings keep their own layers when fullscreen
+        ctx.windowTitle = "Lo-fi beats to code to - YouTube"
+        #expect(e.baseLayer(ctx).id == "youtube")
+        ctx.windowTitle = "Meet - abc-defg-hij"
+        #expect(e.baseLayer(ctx).id == "meet")
+    }
+}
+
 @Suite struct DiscordTests {
     @Test func voiceControls() throws {
         let e = Engine(config: try loadConfig())
@@ -997,7 +1127,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         _ = e.handle(.down("pad13"), now: 7, ctx: ctx, snap: Snapshot())
         _ = e.handle(.up("pad13"), now: 7.1, ctx: ctx, snap: Snapshot())
         #expect(sound(.down("pause"), 8) == "cancel")             // ⏸ cancels
-        _ = e.handle(.down("pad11"), now: 9, ctx: ctx, snap: Snapshot())   // Rewind → menu
+        _ = e.handle(.down("pad10"), now: 9, ctx: ctx, snap: Snapshot())   // Rewind → menu
         #expect(sound(.turn("knob1", 1), 10) == "scroll")
         #expect(sound(.down("pause"), 11) == "cancel")
     }
@@ -1048,6 +1178,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     @Test func snapshotWindowsAndWaiting() {
         let s = AgentStore()
         s.handle(event: "PermissionRequest", payload: payload("a", ["tool_name": .string("Bash")]), pane: "%3", now: 0)
+        s.showApproval(session: "a", now: 0)
         s.handle(event: "UserPromptSubmit", payload: payload("b"), pane: "%1", now: 0)
         let snap = Snapshot.build(context: itermContext(), agents: s, custom: [:], layerPath: "Claude")
         #expect(snap["win.3.agent.status"] == .string("needs_approval"))

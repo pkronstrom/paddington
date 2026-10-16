@@ -1,5 +1,5 @@
 # tmux ruleset: iTerm showing any tmux pane. claude.toml and codex.toml extend this and put their verbs on
-# pads 9–11 and 13–14, and knobs 7–8; New (15) and Close (16) stay — tap: do it, hold: the New… / Close… lists.
+# pads 9–10 and 13–14 (Last window on 11 stays), and knobs 7–8; New (15) and Close (16) stay — tap: do it, hold: the New… / Close… lists.
 # Keys and text go to the pane that was focused when you pressed. Layout grammar: see default.toml.
 
 name    = "tmux"
@@ -10,7 +10,7 @@ when    = { app = ["com.googlecode.iterm2"], tmux_cmd = ["*"] }
 
 # ── buttons ───────────────────────────────────────────────────
 # < : the iTerm window (default.toml) — previous window is knob 3
-right = { label = "Next window", tmux = ["next-window", "-t", "{session}:"], color = "nav" }
+right = { label = "Next window", tmux = ["next-window", "-t", "{session}:"], hold = { layer = "tmux-tools", activate = "modal" }, color = "nav", desc = "tap: next window · hold: tmux tools — splits, zoom, layouts, rename, sessions…" }
 play  = { label = "Enter",       keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
 pause = { label = "Esc",         keys = "esc", color = "warn", desc = "Esc on press" }
 
@@ -27,11 +27,11 @@ pad6 = { label = "Win 6", tmux = ["select-window", "-t", "{session}:6"], look = 
 pad7 = { label = "Win 7", tmux = ["select-window", "-t", "{session}:7"], look = "agent_status", win = 7, empty = { label = "High tom", sound = "tom_high", color = "drum" } }
 pad8 = { label = "Win 8", tmux = ["select-window", "-t", "{session}:8"], look = "agent_status", win = 8, empty = { label = "Cowbell", sound = "cowbell", color = "drum" } }
 
-# ── row 3: panes (agents put their verbs on 9–11) ─────────────
+# ── row 3: 9–10 splits · 11 Last window (the same in agent panes) · 12 Zoom — agents put their verbs on 9–10
 pad9  = { label = "Split →",     tmux = ["split-window", "-h", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
-pad10 = { label = "Zoom",        tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act", desc = "the current pane fills the window; again to restore" }
-pad11 = { label = "Split ↓",     tmux = ["split-window", "-v", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
-pad12 = { label = "Last window", tmux = ["last-window", "-t", "{session}:"], color = "nav" }
+pad10 = { label = "Split ↓",     tmux = ["split-window", "-v", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
+pad11 = { label = "Last window", tmux = ["last-window", "-t", "{session}:"], color = "nav" }
+pad12 = { label = "Zoom",        tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act", desc = "the current pane fills the window; again to restore" }
 
 # ── row 4: tmux verbs (agents: Skills… · Prompts…), then New · Close — 15 · 16 are the same in every ruleset
 # pad15 New: see the [pad15] table at the end. (Waiting agents: their window pads blink.)

@@ -26,7 +26,7 @@ public final class DictationWatcher {
     public func stop() { timer?.invalidate(); timer = nil; onText = nil }
 
     private func poll() {
-        if let t = Self.latestTranscript(), t.id > lastRow {
+        if let t = Self.latestTranscript(), t.id > lastRow, t.done {
             lastRow = t.id
             if !t.text.isEmpty { Log.write("dictation: VoiceInk “\(t.text)”"); deliver(t.text); return }
         }
@@ -51,21 +51,28 @@ public final class DictationWatcher {
         }
     }
 
-    /// The newest VoiceInk transcript: (row id, enhanced text if any, else the raw text).
-    static func latestTranscript() -> (id: Int64, text: String)? {
+    /// The newest VoiceInk transcript: (row id, enhanced text if any, else the raw text, finished?). Finished =
+    /// status completed / canceled (or no status: older VoiceInk). Recordings with nothing said are saved empty.
+    static func latestTranscript() -> (id: Int64, text: String, done: Bool)? {
         guard FileManager.default.fileExists(atPath: voiceInkStore) else { return nil }
         var db: OpaquePointer?
         guard sqlite3_open_v2(voiceInkStore, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { sqlite3_close(db); return nil }
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 50)
         var st: OpaquePointer?
-        let sql = "select Z_PK, ZTEXT, ZENHANCEDTEXT from ZTRANSCRIPTION order by Z_PK desc limit 1"
-        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return nil }
+        let sql = "select Z_PK, ZTEXT, ZENHANCEDTEXT, ZTRANSCRIPTIONSTATUS from ZTRANSCRIPTION order by Z_PK desc limit 1"
+        if sqlite3_prepare_v2(db, sql, -1, &st, nil) != SQLITE_OK {     // an older VoiceInk without a status column
+            sqlite3_finalize(st); st = nil
+            guard sqlite3_prepare_v2(db, "select Z_PK, ZTEXT, ZENHANCEDTEXT, '' from ZTRANSCRIPTION order by Z_PK desc limit 1",
+                                     -1, &st, nil) == SQLITE_OK else { return nil }
+        }
         defer { sqlite3_finalize(st) }
         guard sqlite3_step(st) == SQLITE_ROW else { return nil }
         func col(_ i: Int32) -> String { sqlite3_column_text(st, i).map { String(cString: $0) } ?? "" }
         let enhanced = col(2).trimmingCharacters(in: .whitespacesAndNewlines)
         let raw = col(1).trimmingCharacters(in: .whitespacesAndNewlines)
-        return (sqlite3_column_int64(st, 0), enhanced.isEmpty ? raw : enhanced)
+        let status = col(3).lowercased()
+        let done = status.isEmpty || status == "completed" || status == "canceled" || status == "failed"
+        return (sqlite3_column_int64(st, 0), enhanced.isEmpty ? raw : enhanced, done)
     }
 }

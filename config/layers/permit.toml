@@ -1,12 +1,13 @@
-# An agent asks for permission (Claude's "Do you want to proceed?", Codex approvals) — read from the screen,
-# or from Claude's hook. Same as Confirm and lists: left red ✕ No (pads 6, 10 — Esc: tell it what to do instead),
-# right green ✓ Yes (pads 7, 11; they blink: it waits for you), pad 12 cyan "Yes, and don't ask again" when
-# offered. Other pads are off; knobs and < > still work.
+# An agent asks for permission (Claude's "Do you want to proceed?", Codex approvals) — read from the screen only:
+# a hook's permission request alone isn't enough (Codex's Guardian approves most of them without a prompt).
+# Same as Confirm and lists: left red ✕ No (pads 6, 10 — Esc: tell it what to do instead), right green ✓ Yes
+# (pads 7, 11; they blink: it waits for you), pad 12 cyan "Yes, and don't ask again" when offered. Other pads are
+# off; knobs and < > still work.
 name      = "Allow?"
 kind      = "modal"
 color     = "#ff922b"
 exclusive = true
-auto      = "q.confirm or agent.status == 'needs_approval'"
+auto      = "q.confirm"                                    # Yes / No options on screen (a question: Choose)
 
 pad6  = { label = "✕ No", answer = "no", color = "danger", to = "pane" }
 pad7  = { label = "✓ Yes", answer = "yes", color = "ok", look = "attention", to = "pane" }

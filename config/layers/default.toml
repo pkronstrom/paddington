@@ -85,6 +85,6 @@ pad14 = { label = "Sound",        open = "x-apple.systempreferences:com.apple.So
 pad15 = { label = "Bluetooth",    open = "x-apple.systempreferences:com.apple.BluetoothSettings", color = "sys" }
 pad16 = { label = "Activity Mon", open = "Activity Monitor", color = "sys" }
 # KNOB BANK B: system knobs everywhere (knobs not set here keep their normal action)
-knob1 = { label = "Volume",      cw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) + 4)"] }, ccw = { exec = ["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) - 4)"] }, color = "sys" }
+knob1 = { label = "Volume", cw = { media = "volume_up" }, ccw = { media = "volume_down" }, color = "sys", desc = "the Mac's volume keys: 1/16 per click, with the volume HUD" }
 knob3 = { label = "Desktops", step = 3,    keys = { cw = "ctrl+right", ccw = "ctrl+left" }, to = "app", color = "sys" }
 knob4 = { label = "All windows", picker = "windows", color = "nav", desc = "every app's windows in a list: turn to move, stop turning to go there (⏸ cancels)" }

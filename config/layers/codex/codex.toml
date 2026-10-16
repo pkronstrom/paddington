@@ -1,5 +1,5 @@
-# Codex ruleset: a tmux pane running `codex`. Rows 1–2, buttons, knobs 1–6, Last window (12), New (15) and
-# Close (16) come from tmux.toml; this file sets the agent verbs (9–11, 13–14) and knobs 7–8 — same spots as Claude.
+# Codex ruleset: a tmux pane running `codex`. Rows 1–2, buttons, knobs 1–6, Last window (11), New (15) and
+# Close (16) come from tmux.toml; this file sets the agent verbs (9–10, 13–14) and knobs 7–8 — same spots as Claude.
 
 name    = "Codex"
 kind    = "base"
@@ -10,10 +10,10 @@ when    = { app = ["com.googlecode.iterm2"], tmux_cmd = ["codex"] }
 play  = { label = "Submit", keys = "enter", color = "ok", hold = { legend = "show" }, desc = "tap: Enter · hold: show the legend" }
 pause = { label = "Esc",    keys = "esc", color = "warn", desc = "Esc on press: stop the running turn" }
 
-# ── row 3: Compact · ⇄ Pane · Backtrack · (Last window) — bank B: /new · Zoom · /status
+# ── row 3: Compact · Backtrack · (Last window) · free — bank B: /new · /status
 pad9  = { label = "Compact",    text = "/compact\n", color = "act" }
-pad10 = { label = "⇄ Pane",     tmux = ["select-pane", "-t", "{session}:.+"], color = "nav", desc = "jump between Codex and the shell beside it" }
-pad11 = { label = "Backtrack",  keys = "esc esc", color = "act", desc = "Esc Esc — edit a previous message (empty input)" }
+pad10 = { label = "Backtrack",  keys = "esc esc", color = "act", desc = "Esc Esc — edit a previous message (empty input)" }
+pad12 = { color = "off" }                                    # free: dark and does nothing — put your own action here
 
 # ── row 4: Commands… · Prompts… · (New · Close) — bank B: /mention · Approvals
 pad13 = { label = "Commands…",  picker = "codex-commands", color = "skill" }
@@ -25,7 +25,6 @@ knob8 = { label = "Reasoning", text = "/model\n", then = "menu-nav", then_steps 
 
 [shift]
 pad9  = { label = "/new",     text = "/new\n", confirm = "ask", color = "danger" }
-pad10 = { label = "Zoom",     tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act", desc = "this pane fills the window; again to restore" }
-pad11 = { label = "/status",  text = "/status\n", color = "sys" }
+pad10 = { label = "/status",  text = "/status\n", color = "sys" }
 pad13 = { label = "/mention", text = "/mention ", color = "act", desc = "attach a file — type or dictate the name" }
 pad14 = { label = "Approvals",  text = "/approvals\n", then = "menu-nav", color = "act", desc = "pick the approval mode — knob ↑↓, green ✓ selects" }

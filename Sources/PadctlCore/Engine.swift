@@ -25,6 +25,7 @@ public enum PlanStep: Equatable {
     case focusWindow(String)                      // a window of any app ("pid␟index␟title")
     case pressButton([String])                    // the front app's button by name (Accessibility)
     case cycleTab(next: Bool)                     // browser tabs, wrapping at the ends
+    case mediaKey(String)                         // play | next | prev
 }
 
 public struct Plan: Equatable {
@@ -246,6 +247,7 @@ public final class Engine {
             guard let p = ctx.focusedPane, w.tmuxCmd.contains("*") || w.tmuxCmd.contains(p.command) else { return false }
         }
         if let re = w.window, ctx.windowTitle.range(of: re, options: .regularExpression) == nil { return false }
+        if let fs = w.fullscreen, fs != ctx.fullscreen { return false }
         return w.specificity > 0
     }
 
@@ -662,7 +664,8 @@ public final class Engine {
 
     func plan(_ a: Action, into steps: inout [PlanStep], out: inout [EngineOutput], layer: Layer, control: String,
               now: Double, ctx: Context, snap: Snapshot, pane: PaneInfo?) {
-        let v = vars(snap, pane: pane)
+        // {pane}, {session}…: the target pane, else the focused one (tmux actions from a stacked layer like tmux tools)
+        let v = vars(snap, pane: pane ?? ctx.focusedPane)
         switch a {
         case .keys(let ks): steps.append(pane.map { .tmuxKeys(pane: $0.paneId, ks) } ?? .keys(ks))
         case .text(let t):
@@ -745,6 +748,7 @@ public final class Engine {
         case .focusWindow(let w): steps.append(.focusWindow(interpolate(w, v)))
         case .pressButton(let names): steps.append(.pressButton(names))
         case .tab(let dir): steps.append(.cycleTab(next: dir == "next"))
+        case .media(let k): steps.append(.mediaKey(k))
         case .app(let raw):
             // "previous": the app in front before this one — a quick way back and forth
             let name = raw == "previous" ? (ctx.previousApp?.bundleId ?? "") : interpolate(raw, v)
@@ -941,6 +945,8 @@ public final class Engine {
             case .answerRole(let r): return r == "no" ? "decline (Esc)" : (r == "always" ? "yes, and don't ask again" : "yes")
             case .decide(let ok): return ok ? "confirm" : "cancel"
             case .window(let d): return "\(d) window of this app"
+            case .media(let k): return ["play": "play / pause", "next": "next track", "prev": "previous track", "volume_up": "volume up",
+                                        "volume_down": "volume down", "mute": "mute / unmute"][k] ?? k
             case .tab(let d): return d == "next" ? "next tab (last → first)" : "previous tab (first → last)"
             case .pressButton(let n): return "press “\(n.joined(separator: "” / “"))”"
             case .focusWindow(let w): return "go to \(w.split(separator: "\u{1F}").last ?? "")"

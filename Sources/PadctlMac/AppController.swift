@@ -196,6 +196,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             c.app = app.bundleIdentifier ?? ""
             c.appName = app.localizedName ?? ""
             c.windowTitle = Self.focusedWindowTitle(pid: app.processIdentifier)
+            c.fullscreen = Self.focusedWindowFullscreen(pid: app.processIdentifier)
         }
         c.running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.map {
             RunningApp(bundleId: $0.bundleIdentifier ?? "", name: $0.localizedName ?? "",
@@ -240,7 +241,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             process(e.contextChanged(c))
             if !e.lastEvent.isEmpty { Log.write(e.lastEvent); e.lastEvent = "" }
         }
-        let sig = "app=\(c.app) tty=\(clientTTY ?? "-") pane=\(c.focusedPane.map { "\($0.paneId) (\($0.command))" } ?? "-") panes=\(c.panes.count) layer=\(engine?.layerPath(c, now: now) ?? "-")"
+        let sig = "app=\(c.app) tty=\(clientTTY ?? "-") pane=\(c.focusedPane.map { "\($0.paneId) (\($0.command))" } ?? "-") panes=\(c.panes.count)\(c.fullscreen ? " fullscreen" : "") layer=\(engine?.layerPath(c, now: now) ?? "-")"
         if sig != lastContextLog {
             lastContextLog = sig
             // iTerm in front but no pane: say which tmux clients there were, to see why
@@ -257,6 +258,25 @@ public final class AppController: NSObject, NSApplicationDelegate {
         var title: CFTypeRef?
         AXUIElementCopyAttributeValue(w as! AXUIElement, kAXTitleAttribute as CFString, &title)
         return title as? String ?? ""
+    }
+
+    /// The front window fills its screen: macOS fullscreen (AXFullScreen, Chrome's fullscreen videos) or a window
+    /// sized to the whole screen (Firefox's fullscreen videos, with the menu bar hidden).
+    static func focusedWindowFullscreen(pid: pid_t) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        func attr(_ e: AXUIElement, _ k: String) -> CFTypeRef? { var v: CFTypeRef?; return AXUIElementCopyAttributeValue(e, k as CFString, &v) == .success ? v : nil }
+        guard let w = attr(app, kAXFocusedWindowAttribute) else { return false }
+        let win = w as! AXUIElement
+        if (attr(win, "AXFullScreen") as? Bool) == true { return true }
+        var pos = CGPoint.zero, size = CGSize.zero
+        guard let p = attr(win, kAXPositionAttribute), let s = attr(win, kAXSizeAttribute) else { return false }
+        AXValueGetValue(p as! AXValue, .cgPoint, &pos); AXValueGetValue(s as! AXValue, .cgSize, &size)
+        // AX frames are top-left based; a screen's full frame starts at its top edge too
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        return NSScreen.screens.contains { sc in
+            let top = primaryH - sc.frame.maxY
+            return abs(pos.x - sc.frame.minX) < 2 && abs(pos.y - top) < 2 && abs(size.width - sc.frame.width) < 2 && abs(size.height - sc.frame.height) < 2
+        }
     }
 
     /// The installed executable's inode at launch; scripts/build-app.sh swaps in a new bundle without restarting us.
@@ -279,17 +299,22 @@ public final class AppController: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    /// Every second: an agent "waiting for approval" whose pane shows no permission prompt isn't waiting.
+    /// Every second: a permission request counts as "approve?" only once its prompt is on the agent's screen
+    /// (Codex's Guardian approves most requests itself without one), and stops when the prompt goes away.
     func checkApprovals() {
         guard !testMode else { return }
         var changed = false
+        for a in agents.approvalRequests {
+            let r = Tmux.run(["capture-pane", "-p", "-t", a.pane])
+            guard r.ok, AgentStore.approvalShown(r.out) else { continue }
+            Log.write("approval prompt on screen in \(a.pane) (\(a.approvalAsked ?? ""))")
+            changed = agents.showApproval(session: a.sessionId, now: now) || changed
+        }
         for a in agents.approvalWaits(now: now) {
-            let r = Tmux.run(["capture-pane", "-p", "-t", a.pane, "-S", "-40"])
-            guard r.ok else { continue }
-            if !AgentStore.approvalMarkers.contains(where: { r.out.contains($0) }) {
-                Log.write("approval wait in \(a.pane) (\(a.reason)) has no prompt on screen → working")
-                changed = agents.dismissApproval(session: a.sessionId, now: now) || changed
-            }
+            let r = Tmux.run(["capture-pane", "-p", "-t", a.pane])
+            guard r.ok, !AgentStore.approvalStillShown(r.out) else { continue }
+            Log.write("approval prompt gone in \(a.pane) (\(a.reason)) → working")
+            changed = agents.dismissApproval(session: a.sessionId, now: now) || changed
         }
         if changed { render() }
     }
@@ -399,7 +424,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var talkDownAt = 0.0, lastTalkTap = -10.0
     var talkLatched = false { didSet { if talkLatched && !oldValue { latchTranscript = DictationWatcher.latestTranscript()?.id ?? 0 } } }
     var latchTranscript: Int64 = 0      // newest transcript when hands-free started: a newer one means it already ended
+    var talkUpTranscript: Int64 = 0     // newest transcript when ● was let go: VoiceInk's text for that comes after it
     var swallowPlayUp = false
+    var injectingPlay = false           // the ▶ padctl presses itself once the text is in: never caught again here
+
+    /// A finished VoiceInk transcript newer than `id` (VoiceInk saves each recording once it's transcribed).
+    func transcriptDone(after id: Int64) -> (id: Int64, text: String)? {
+        guard let t = DictationWatcher.latestTranscript(), t.id > id, t.done else { return nil }
+        return (t.id, t.text)
+    }
 
     /// Returns true when the event was used up here.
     func talkInput(_ ev: ControlEvent) -> Bool {
@@ -407,29 +440,31 @@ public final class AppController: NSObject, NSApplicationDelegate {
         switch ev {
         case .down(let c) where c == talk:
             talkDownAt = now
+            talkHandled = false                 // a new recording: its ▶ may wait for the text again
         case .up(let c) where c == talk:
             let held = now - talkDownAt
+            talkUpTranscript = DictationWatcher.latestTranscript()?.id ?? 0
             if held >= 0.35 { talkLatched = false }      // push-to-talk: VoiceInk stops on release
             else { talkLatched.toggle() }                // a tap starts or stops hands-free
             Log.write("talk: ● \(held >= 0.35 ? "hold" : "tap") \(String(format: "%.2f", held))s → hands-free \(talkLatched ? "on" : "off") (recorder on screen: \(DictationWatcher.recorderVisible()))")
-        case .down("play") where engine?.picker == nil && !inputWindow.isOpen:
-            let recorder = DictationWatcher.recorderVisible()
-            if talkLatched, let t = DictationWatcher.latestTranscript(), t.id > latchTranscript {
+        case .down("play") where engine?.picker == nil && !inputWindow.isOpen && !injectingPlay:
+            if talkLatched, let t = transcriptDone(after: latchTranscript) {
                 Log.write("talk: hands-free already ended (VoiceInk saved “\(t.text)”) — ▶ is just Enter")
                 talkLatched = false
             }
             if talkLatched {
                 talkLatched = false; swallowPlayUp = true
-                stopTalkThenEnter(tapToStop: true)
+                stopTalkThenEnter(tapToStop: true, after: DictationWatcher.latestTranscript()?.id ?? 0)
                 return true
             }
-            if recorder && now - talkDownAt < 15 {
-                // just stopped with ● and VoiceInk is still transcribing: wait for the text, then Enter
+            // ● was just let go and VoiceInk hasn't saved that recording's text yet: wait for it, then Enter.
+            // (Not "is the recorder window up" — newer VoiceInk keeps a window on screen all the time.)
+            if now - talkDownAt < 15, talkDownAt > 0, transcriptDone(after: talkUpTranscript) == nil, !talkHandled {
                 swallowPlayUp = true
-                stopTalkThenEnter(tapToStop: false)
+                stopTalkThenEnter(tapToStop: false, after: talkUpTranscript)
                 return true
             }
-        case .up("play") where swallowPlayUp:
+        case .up("play") where swallowPlayUp && !injectingPlay:
             swallowPlayUp = false
             return true
         default: break
@@ -450,19 +485,25 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    func stopTalkThenEnter(tapToStop: Bool) {
-        let before = DictationWatcher.latestTranscript()?.id ?? 0
+    /// The ▶ after dictation already waited for (or got) its text: a later ▶ is a plain Enter again.
+    var talkHandled = false
+
+    func stopTalkThenEnter(tapToStop: Bool, after before: Int64) {
         let talkKey = (try? KeyChord.parse("rightcmd")) ?? KeyChord(modifiers: [], key: "rightcmd")
-        Log.write("talk: ▶ — \(tapToStop ? "stop hands-free, " : "")wait for the text, then Enter (recorder on screen: \(DictationWatcher.recorderVisible()))")
+        Log.write("talk: ▶ — \(tapToStop ? "stop hands-free, " : "")wait for the text, then Enter")
         if tapToStop { try? Keyboard.down(talkKey); usleep(40_000); try? Keyboard.up(talkKey) }     // the stop tap VoiceInk expects
+        talkHandled = true
         let started = Date()
         func poll() {
-            if let t = DictationWatcher.latestTranscript(), t.id > before {
-                // the transcript is saved; give the paste a moment, then Enter through the normal ▶ binding
+            if let t = transcriptDone(after: before) {
+                // the transcript is saved; give the paste a moment, then Enter through the normal ▶ binding —
+                // pressed as padctl's own ▶, so this code doesn't catch it again
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
                     guard let self else { return }
                     Log.write("talk: “\(t.text)” is in — Enter")
+                    self.injectingPlay = true
                     self.input(.down("play")); self.input(.up("play"))
+                    self.injectingPlay = false
                 }
                 return
             }

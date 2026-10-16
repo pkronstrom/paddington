@@ -1,0 +1,37 @@
+# A fullscreen video in the browser (any site — x.com, Vimeo…; the front window fills the screen). Clean on
+# purpose: rows 1–2, ▶ / ⏸ and knobs 1–2 are the player, everything else is off (grey) — only < (iTerm / Agents)
+# works as everywhere. Play / pause and next are the Mac's media keys, so they reach whatever is playing; seek is
+# ← / →; volume and mute are the Mac's own volume keys (with the volume HUD). ⏸ (Esc) leaves fullscreen.
+# YouTube, Meet and Teams keep their own layers when fullscreen (they're more specific).
+
+name     = "Video"
+kind     = "base"
+color    = "#fa5252"
+when     = { app = ["org.mozilla.firefox", "com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "company.thebrowser.Browser"], fullscreen = true }
+
+# < is the same everywhere: iTerm's hotkey window (tap) / the Agents overview (hold)
+left  = { label = "iTerm", keys = "ctrl+<", to = "app", hold = { layer = "agents", activate = "modal" }, color = "sys", desc = "tap: show / hide the iTerm hotkey window (⌃<) · hold: the Agents overview" }
+play  = { label = "⏯ Play", media = "play", color = "ok", hold = { legend = "show" }, desc = "tap: play / pause (media key) · hold: show the legend" }
+pause = { label = "Exit fullscreen", keys = "esc", color = "warn" }
+
+# ── row 1: seek (← / → are 5 s in most players) — ±15 s blue, ±5 s cyan
+pad1  = { label = "−15 s", keys = "left left left", color = "nav" }
+pad2  = { label = "−5 s",  keys = "left", color = "sys" }
+pad3  = { label = "+5 s",  keys = "right", color = "sys" }
+pad4  = { label = "+15 s", keys = "right right right", color = "nav" }
+
+# ── row 2: transport (media keys) ─────────────────────────────
+pad5  = { label = "⏮ Prev",  media = "prev", color = "nav", desc = "previous (media key — if the site supports it)" }
+pad6  = { label = "⏯ Play",  media = "play", color = "ok", desc = "play / pause (the media key)" }
+pad7  = { label = "Next ⏭",  media = "next", color = "nav", desc = "next (media key — if the site supports it)" }
+
+# ── row 3: mute (volume is knob 1) ────────────────────────────
+pad9  = { label = "Mute",   media = "mute", color = "act", desc = "the Mac's sound on / off (the mute key)" }
+
+# ── row 4: leave — top right ──────────────────────────────────
+pad16 = { label = "Exit fullscreen", keys = "esc", color = "warn" }
+
+# ── knobs: volume, seek, speed ────────────────────────────────
+knob1 = { label = "Volume", cw = { media = "volume_up" }, ccw = { media = "volume_down" }, color = "sys", desc = "the Mac's volume keys: 1/16 per click, with the volume HUD" }
+knob2 = { label = "Seek",   keys = { cw = "right", ccw = "left" }, color = "nav", desc = "5 s per click" }
+knob7 = { label = "Speed",  keys = { cw = ">", ccw = "<" }, color = "act", desc = "playback speed — YouTube and players that use > / < (x.com has no speed key)" }

@@ -1,0 +1,34 @@
+# tmux tools (hold > in a tmux, Claude or Codex pane): pane and window operations in one place. One action and it
+# closes; > or ⏸ closes it without doing anything. The legend shows while it's on. New (15) and Close (16) stay
+# the usual ones.
+name    = "tmux tools"
+kind    = "modal"
+color   = "#20c997"
+legend  = true
+timeout = "15s"
+exit    = ["pad1", "pad2", "pad3", "pad4", "pad5", "pad6", "pad7", "pad8", "pad9", "pad10", "pad11", "pad12", "pad13"]
+
+# ── row 1: shape this window ──────────────────────────────────
+pad1  = { label = "Split →",   tmux = ["split-window", "-h", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
+pad2  = { label = "Split ↓",   tmux = ["split-window", "-v", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }
+pad3  = { label = "Zoom",      tmux = ["resize-pane", "-Z", "-t", "{pane}"], color = "act", desc = "this pane fills the window; again to restore" }
+pad4  = { label = "Break out", tmux = ["break-pane", "-s", "{pane}"], color = "act", desc = "move this pane to its own window" }
+
+# ── row 2: arrange panes ──────────────────────────────────────
+pad5  = { label = "Last pane",   tmux = ["last-pane", "-t", "{session}:"], color = "nav" }
+pad6  = { label = "Rotate",      tmux = ["rotate-window", "-t", "{session}:"], color = "act" }
+pad7  = { label = "Next layout", tmux = ["next-layout", "-t", "{session}:"], color = "act", desc = "the next arrangement (knob 8 turns through them)" }
+pad8  = { label = "Tiled",       tmux = ["select-layout", "-t", "{session}:", "tiled"], color = "act", desc = "all panes the same size" }
+
+# ── row 3: find and name ──────────────────────────────────────
+pad9  = { label = "Choose window…", tmux = ["choose-tree", "-Zw", "-t", "{pane}"], color = "nav", desc = "every window: knob ↑↓, ▶ to go" }
+pad10 = { label = "Sessions…",      tmux = ["choose-tree", "-Zs", "-t", "{pane}"], color = "nav", desc = "every session: knob ↑↓, ▶ to go" }
+pad11 = { label = "Copy mode",      tmux = ["copy-mode", "-t", "{pane}"], color = "act", desc = "scroll and select in this pane (q leaves)" }
+pad12 = { label = "Rename…",        input = "Window name", run = { tmux = ["rename-window", "-t", "{session}:{window}", "{input}"] }, color = "act", desc = "type or dictate a new name for this window" }
+
+# ── row 4: Kill pane · — · (New · Close) ─────────────────────
+pad13 = { label = "Kill pane", tmux = ["kill-pane", "-t", "{pane}"], confirm = "ask", color = "danger" }
+pad14 = { color = "off" }
+
+right = { label = "✕ Close", layer = "tmux-tools", activate = "toggle", color = "danger" }
+pause = { label = "✕ Close", layer = "tmux-tools", activate = "toggle", color = "danger" }

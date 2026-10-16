@@ -68,10 +68,11 @@ public indirect enum Action: Equatable {
     case focusWindow(String)        // one window of any app (the window list's items: "pid␟index␟title")
     case pressButton([String])      // press the front app's button with one of these names (things without a shortcut)
     case tab(String)                // next | prev browser tab, wrapping around at the ends
+    case media(String)              // play | next | prev | volume_up | volume_down | mute — the Mac's media keys
     case input(String, Action)      // ask for text (dictate with ●), then run the action with {input}
 
     static let keysNames = ["keys", "text", "tmux", "exec", "open", "shortcut", "menu", "script", "prompt",
-                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input", "search", "decide", "app", "focus_window", "press", "tab"]
+                            "layer", "agent", "mode", "set", "toast", "wait", "seq", "legend", "picker", "answer", "window", "input", "search", "decide", "app", "focus_window", "press", "tab", "media"]
 
     /// Parse the single action key present in a binding table. Returns nil if none.
     public static func parse(_ t: [String: Value], ctx: String) throws -> Action? {
@@ -127,6 +128,12 @@ public indirect enum Action: Equatable {
             return .input(try str(), then)
         case "app": return .app(try str())
         case "focus_window": return .focusWindow(try str())
+        case "media":
+            let s = try str()
+            guard ["play", "next", "prev", "volume_up", "volume_down", "mute"].contains(s) else {
+                throw ExprError("\(ctx): media must be play, next, prev, volume_up, volume_down or mute")
+            }
+            return .media(s)
         case "tab":
             let s = try str()
             guard s == "next" || s == "prev" else { throw ExprError("\(ctx): tab must be \"next\" or \"prev\"") }
@@ -294,9 +301,10 @@ public struct When: Equatable {
     public var apps: [String]
     public var tmuxCmd: [String]
     public var window: String?
+    public var fullscreen: Bool? = nil     // fullscreen = true: the front window fills its screen (a fullscreen video…)
     /// tmux_cmd = ["*"] matches any tmux pane; a named command is more specific.
     public var specificity: Int {
-        (apps.isEmpty ? 0 : 1) + (tmuxCmd.isEmpty ? 0 : (tmuxCmd == ["*"] ? 1 : 3)) + (window == nil ? 0 : 1)
+        (apps.isEmpty ? 0 : 1) + (tmuxCmd.isEmpty ? 0 : (tmuxCmd == ["*"] ? 1 : 3)) + (window == nil ? 0 : 1) + (fullscreen == nil ? 0 : 1)
     }
     public var usesTmux: Bool { !tmuxCmd.isEmpty }
 }
@@ -332,7 +340,8 @@ extension Layer {
         guard let kind = LayerKind(rawValue: kindStr) else { throw err("unknown kind '\(kindStr)'") }
         var when: When?
         if let w = t["when"]?.table {
-            when = When(apps: w["app"]?.stringList ?? [], tmuxCmd: w["tmux_cmd"]?.stringList ?? [], window: w["window"]?.string)
+            when = When(apps: w["app"]?.stringList ?? [], tmuxCmd: w["tmux_cmd"]?.stringList ?? [], window: w["window"]?.string,
+                        fullscreen: w["fullscreen"]?.bool)
         }
         var bindings: [String: Binding] = [:], shift: [String: Binding] = [:], looks: [String: Look] = [:]
         do {

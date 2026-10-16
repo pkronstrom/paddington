@@ -19,6 +19,7 @@ public struct Context: Equatable {
     public var app: String = ""             // bundle id
     public var appName: String = ""
     public var windowTitle: String = ""
+    public var fullscreen = false            // the front window fills its screen (macOS fullscreen or a fullscreen video)
     public var focusedPane: PaneInfo?       // tmux pane shown in the focused terminal, if known
     public var panes: [PaneInfo] = []       // all panes on the tmux server
     public var running: [RunningApp] = []    // apps with a Dock icon (app = "…" bindings light up by these)
@@ -69,6 +70,9 @@ public struct Agent: Equatable {
     public var since: Double
     public var statusBeforeCompact: AgentStatus = .idle
     public var pendingQuestions: [String: Value] = [:]   // tool_use_id → tool_input
+    /// A permission request (tool name) whose prompt hasn't been seen on screen yet. Codex's Guardian settles most
+    /// of these itself without ever drawing a prompt, so the agent only counts as waiting once the prompt shows.
+    public var approvalAsked: String?
     public var contextPct: Double?                       // from the status line: context window used, 0–100
 }
 
@@ -105,6 +109,8 @@ public final class AgentStore {
             if ag.status != s { ag.since = now }
             ag.status = s; ag.reason = reason
         }
+        // anything but the request itself (or Claude's notification about it) settles a request not yet on screen
+        if event != "PermissionRequest" && event != "Notification" { ag.approvalAsked = nil }
         func clearWaitIfNoQuestions() {
             if ag.status.waiting && ag.pendingQuestions.isEmpty { set(.working) }
         }
@@ -122,10 +128,12 @@ public final class AgentStore {
                 set(.working)
             }
         case "PermissionRequest":
-            set(.needs_approval, tool.isEmpty ? "permission" : tool)
+            // Claude Code also asks "permission" for its own question tool: that's a question, not a yes / no
+            if tool == "AskUserQuestion" || !ag.pendingQuestions.isEmpty { set(.needs_input, "question") }
+            else if ag.status != .needs_approval { ag.approvalAsked = tool.isEmpty ? "permission" : tool }   // see showApproval
         case "Notification":
             switch payload["notification_type"]?.string ?? "" {
-            case "permission_prompt": if !ag.status.waiting { set(.needs_approval, "permission") }
+            case "permission_prompt": if !ag.status.waiting { ag.approvalAsked = ag.approvalAsked ?? "permission" }
             case "idle_prompt": if ag.status == .working { set(.done_unread) }
             default: break
             }
@@ -191,22 +199,46 @@ public final class AgentStore {
     public static let approvalMarkers = ["Would you like to", "Yes, proceed", "No, and tell Codex",   // Codex
                                          "Do you want to", "Yes, and don't ask again"]                 // Claude Code
 
+    /// Agents with a permission request whose prompt isn't on screen (yet): checked against the screen every second.
+    public var approvalRequests: [Agent] { agents.values.filter { $0.approvalAsked != nil } }
+
+    /// The permission prompt is on screen: now the agent waits for you.
+    @discardableResult
+    public func showApproval(session: String, now: Double) -> Bool {
+        guard let ag = agents[session], let reason = ag.approvalAsked else { return false }
+        agents[session]?.approvalAsked = nil
+        agents[session]?.status = .needs_approval; agents[session]?.reason = reason
+        if ag.status != .needs_approval { agents[session]?.since = now }
+        return true
+    }
+
     /// Agents waiting for approval for longer than `grace` seconds (to check against the screen).
     public func approvalWaits(now: Double, grace: Double = 2) -> [Agent] {
         agents.values.filter { $0.status == .needs_approval && now - $0.since >= grace }
     }
 
-    /// The prompt isn't on screen (any more): the agent is working again.
+    /// A permission prompt on this screen: Yes / No options under a cursor. Reply text ("Would you like to…")
+    /// doesn't count, so only this turns a request into "approve?".
+    public static func approvalShown(_ screen: String) -> Bool { ScreenChoices.parse(screen)?.confirmation != nil }
+
+    /// Still on screen: the prompt, or its wording while it redraws.
+    public static func approvalStillShown(_ screen: String) -> Bool {
+        approvalShown(screen) || approvalMarkers.contains { screen.contains($0) }
+    }
+
+    /// The prompt isn't on screen (any more): the agent is working again. The request stays open until the next
+    /// hook event, so a prompt that comes back (or was only mid-redraw) is picked up again by showApproval.
     @discardableResult
     public func dismissApproval(session: String, now: Double) -> Bool {
-        guard agents[session]?.status == .needs_approval else { return false }
+        guard let ag = agents[session], ag.status == .needs_approval else { return false }
+        agents[session]?.approvalAsked = ag.reason.isEmpty ? "permission" : ag.reason
         agents[session]?.status = .working; agents[session]?.reason = ""; agents[session]?.since = now
         return true
     }
 
     public func reset(pane: String, now: Double) {
         for (k, v) in agents where v.pane == pane {
-            agents[k]?.status = .idle; agents[k]?.pendingQuestions = [:]; agents[k]?.since = now
+            agents[k]?.status = .idle; agents[k]?.pendingQuestions = [:]; agents[k]?.approvalAsked = nil; agents[k]?.since = now
         }
     }
 
