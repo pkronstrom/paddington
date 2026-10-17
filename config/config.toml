@@ -71,4 +71,5 @@ night = 0.3                        # Paddington menu › Dim pad lights (night) 
 after = "5m"                       # without a press, turn or button for this long ("0" = never sleep)
 level = 0.0                        # light level while asleep: 0 = off, e.g. 0.05 = faint
 wake_for_agents = false            # true: an agent that starts waiting for you wakes the lights
-# asleep, the first press, turn or button only wakes the pad (it does nothing else); the menu has "Sleep now"
+# asleep, the first press, turn or button only wakes the pad (it does nothing else); the menu has "Sleep now".
+# A pad switched off and on again (or back in range) comes back awake.

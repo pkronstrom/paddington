@@ -179,8 +179,17 @@ public final class AppController: NSObject, NSApplicationDelegate {
         return MIDIService.sources().contains { $0.online && (m.isEmpty || $0.name.localizedCaseInsensitiveContains(m)) }
     }
 
+    var padWasPresent = false
+
     func ensureConnection() {
         midi.refresh()
+        // a pad that was off (or out of range) comes back awake, even if the app put it to sleep meanwhile
+        let present = padSourcePresent
+        if present, !padWasPresent, padSleep.asleep {
+            padSleep.wake(now: now)
+            Log.write("pad awake (reconnected)")
+        }
+        padWasPresent = present
         if testMode { return }
         if let s = config?.settings, s.ledMode != "off", padSourcePresent,
            ["off", "pad not connected", "LEDs disconnected"].contains(leds.status) { leds.start() }
