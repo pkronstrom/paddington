@@ -43,6 +43,13 @@ public enum EngineOutput: Equatable {
     case input(InputRequest)
     case search                     // a picker with a search box opened: the app shows a text field for it
     case dictate                    // start hands-free dictation (the app taps the talk key)
+    case sampler(SamplerCommand)    // a drum pad held: record a sample for it until it's let go
+}
+
+public enum SamplerCommand: Equatable {
+    case record(String)             // start recording for this pad ("A.pad3")
+    case stop(String)               // the pad (or ●) was let go: keep what was recorded
+    case erase(String)              // the pad's sample goes (its drum comes back)
 }
 
 /// The app asks the user for text, then hands it back with `Engine.submitInput`.
@@ -190,7 +197,17 @@ public final class Engine {
         control.hasPrefix("knob") ? (shiftHeld || knobBank == "B") : shiftActive
     }
 
-    struct Press { var binding: Binding?; var layer: Layer?; var down: Double; var fired: Bool; var role: String?; var legend = false }
+    struct Press {
+        var binding: Binding?; var layer: Layer?; var down: Double; var fired: Bool; var role: String?; var legend = false
+        var drum: String?              // a drum pad's sample key: held long enough (no sample yet), it records
+        var sample = false             // …it has a sample: holding plays it, ● records, ⏸ erases
+        var chorded = false            // ● or ⏸ was pressed with it: no recording from the hold
+    }
+    /// Samples recorded on pads: "A.pad3" (bank, pad) → sound (a file path, "@gain").
+    public var samples: [String: String] = [:]
+    /// The pad recording a sample (its key), and the control whose release ends it (the pad, or ●).
+    public private(set) var recording: String?
+    var recordTrigger: String?
     private var presses: [String: Press] = [:]
     private var heldKeys: [String: (chord: KeyChord, since: Double)] = [:]
     private var lastBaseId: String?
@@ -282,30 +299,81 @@ public final class Engine {
     }
 
     /// Resolve a control top-down through the stack; within a layer, shift tables first, then bindings, along extends.
+    /// A pad with nothing to do there is a drum (see `drum`).
     public func resolve(_ control: String, _ ctx: Context, _ snap: Snapshot = Snapshot(), shift: Bool? = nil) -> (Binding, Layer)? {
+        let shifted = shift ?? shiftActive(for: control)
+        let layers = effectiveStack(ctx, snap)
+        let found = bound(control, layers, snap, shift: shifted)
+        guard control.hasPrefix("pad"), idle(found?.0, snap), let d = drum(control, layers, snap, shift: shifted) else { return found }
+        return (d, found?.1 ?? layers.last ?? baseLayer(ctx))
+    }
+
+    /// What the layers (bottom to top) bind to a control (a window pad without its window: its `empty` binding, if any).
+    func bound(_ control: String, _ layers: [Layer], _ snap: Snapshot, shift: Bool) -> (Binding, Layer)? {
         func ok(_ b: Binding) -> Bool { b.condition?.eval(snap.lookup).truthy ?? true }
-        func missing(_ b: Binding) -> Bool { b.params["win"].map { snap["win.\($0.int ?? -1).exists"] == .null } ?? false }
-        // A window pad whose window doesn't exist uses an `empty` binding. These are handed out by priority: the
-        // empty bindings in pad order (pad1's first) go to whichever window pads are empty, lowest pad first —
-        // so a few empty pads always get the essentials (kick, snare, hat) and more pads add to them.
-        func pick(_ b: Binding, _ ch: [Layer], _ shifted: Bool) -> Binding {
-            guard let own = b.whenEmpty.first, missing(b) else { return b }
-            let pads = (1...64).compactMap { n -> (String, Binding)? in
-                let name = "pad\(n)"
-                for c in ch { if let x = shifted ? c.shift[name] : c.bindings[name], ok(x) { return (name, x) } }
-                return nil
-            }.filter { !$0.1.whenEmpty.isEmpty }
-            let kit = pads.map { $0.1.whenEmpty[0] }
-            guard let rank = pads.filter({ missing($0.1) }).firstIndex(where: { $0.0 == control }), rank < kit.count else { return own }
-            return kit[rank]
-        }
-        for l in effectiveStack(ctx, snap).reversed() {
+        func pick(_ b: Binding) -> Binding { missingWindow(b, snap) ? b.whenEmpty.first ?? b : b }
+        for l in layers.reversed() {
             let ch = chain(l)
-            if shift ?? shiftActive(for: control) { for c in ch { if let b = c.shift[control], ok(b) { return (pick(b, ch, true), l) } } }
-            for c in ch { if let b = c.bindings[control], ok(b) { return (pick(b, ch, false), l) } }
+            if shift { for c in ch { if let b = c.shift[control], ok(b) { return (pick(b), l) } } }
+            for c in ch { if let b = c.bindings[control], ok(b) { return (pick(b), l) } }
             if l.exclusive, control.hasPrefix("pad") { return nil }   // e.g. confirm: the other pads are off (knobs still work)
         }
         return nil
+    }
+
+    func missingWindow(_ b: Binding, _ snap: Snapshot) -> Bool {
+        b.params["win"].map { snap["win.\($0.int ?? -1).exists"] == .null } ?? false
+    }
+
+    /// Nothing to do: unbound (or off under an exclusive layer), a window pad without its window, a question's
+    /// option past the last one, an agent slot past the last agent, or a binding with neither action nor sound.
+    func idle(_ b: Binding?, _ snap: Snapshot) -> Bool {
+        guard let b else { return true }
+        if missingWindow(b, snap) { return true }
+        switch b.action {
+        case nil: return (b.sound ?? "").isEmpty && b.hold == nil && b.passthrough == nil && b.with.isEmpty
+        case .answer(let n)?: return n > (snap["q.count"].int ?? Int.max)
+        case .agent(let s)? where s.hasPrefix("slot "): return Int(s.dropFirst(5)).map { $0 > (snap["agents.count"].int ?? Int.max) } ?? false
+        default: return false
+        }
+    }
+
+    /// The pads, in order (pad1 first).
+    var padNames: [String] {
+        let names = Set(config.device.controls.filter { $0.kind == .pad }.map(\.name))
+        return names.isEmpty ? (1...16).map { "pad\($0)" } : (1...64).map { "pad\($0)" }.filter(names.contains)
+    }
+
+    /// An idle pad is a drum. Its own sample if one was recorded for it (hold the pad), otherwise the kit
+    /// ([sounds] kit) handed out in pad order to the idle pads without a sample: the lowest gets the first drum
+    /// (kick), the next the second… so even two idle pads make a beat; past the end of the kit it starts over.
+    func drum(_ control: String, _ layers: [Layer], _ snap: Snapshot, shift: Bool) -> Binding? {
+        let bank = shift ? "B" : "A"
+        let key = "\(bank).\(control)"
+        var b = Binding.parseBare()
+        b.params["drum"] = .string(key)
+        b.color = "drum"
+        b.description = "a drum · hold: record your own sound for this pad"
+        if let s = samples[key] {
+            b.label = "Sample"; b.sound = s; b.color = "sample"; b.params["sample"] = .bool(true)
+            let gate = config.settings.sampleMode != "one_shot"
+            if gate { b.params["gate"] = .bool(true) }
+            b.description = "your sample (\(gate ? "plays while held" : "plays to the end")) · hold it + ●: record again · hold it + ⏸: erase"
+            return b
+        }
+        let kit = config.settings.drumKit
+        let idlePads = padNames.filter { samples["\(bank).\($0)"] == nil && ($0 == control || idle(bound($0, layers, snap, shift: shift)?.0, snap)) }
+        if !kit.isEmpty, let rank = idlePads.firstIndex(of: control) {
+            b.sound = kit[rank % kit.count]
+            b.label = Self.drumLabel(b.sound!)
+        }
+        return b
+    }
+
+    /// "open_hat" → "Open hat".
+    static func drumLabel(_ sound: String) -> String {
+        let s = sound.replacingOccurrences(of: "_", with: " ")
+        return s.prefix(1).uppercased() + s.dropFirst()
     }
 
     func role(of control: String) -> String? {
@@ -328,6 +396,7 @@ public final class Engine {
     // MARK: input
 
     public func handle(_ e: ControlEvent, now: Double, ctx: Context, snap: Snapshot) -> [EngineOutput] {
+        if let out = samplerInput(e, now: now) { return out }
         if let out = pickerInput(e, now: now, ctx: ctx, snap: snap) { return out }
         switch e {
         case .down(let c): return down(c, now: now, ctx: ctx, snap: snap)
@@ -353,6 +422,10 @@ public final class Engine {
             presses[c] = Press(binding: b2, layer: l2, down: now, fired: false, role: nil)
         }
         presses[c] = presses[c] ?? Press(binding: b, layer: l, down: now, fired: false, role: nil)
+        if let key = b.params["drum"]?.string {          // a drum plays on the press; held, it records a sample
+            presses[c]?.fired = true; presses[c]?.drum = key; presses[c]?.sample = b.params["sample"] != nil
+            return fire(b.action, binding: b, layer: l, control: c, now: now, ctx: ctx, snap: snap)
+        }
         if b.confirmAsk, b.hold == nil, let a = b.action {     // with a hold: asks on release (a tap), below
             presses[c]?.fired = true
             return askConfirm(PendingConfirm(action: a, binding: b, layer: l, control: c,
@@ -434,6 +507,13 @@ public final class Engine {
     /// Hold thresholds, confirmations, timeouts, held-key safety.
     public func tick(now: Double, ctx: Context, snap: Snapshot) -> [EngineOutput] {
         var out: [EngineOutput] = []
+        // a drum pad "held" for this long lost its release (a dropped connection): it must not keep ● and ⏸
+        for (c, p) in presses where p.drum != nil && c != recordTrigger && now - p.down > 20 { presses[c] = nil }
+        for (c, p) in presses where recording == nil && !p.sample && !p.chorded {
+            guard let key = p.drum, now - p.down >= config.settings.sampleHold else { continue }
+            recording = key; recordTrigger = c
+            out += [.sampler(.record(key)), .redraw]
+        }
         for (c, p) in presses where !p.fired && p.role == nil {
             guard let b = p.binding, let l = p.layer else { continue }
             if b.confirmHold, now - p.down >= config.settings.confirmHoldMs / 1000 {
@@ -465,12 +545,46 @@ public final class Engine {
     /// Release everything held (disconnect, quit, pause).
     public func releaseAll() -> [EngineOutput] {
         let steps = heldKeys.values.map { PlanStep.keyUp($0.chord) }
-        heldKeys = [:]; presses = [:]; shiftHeld = false; picker = nil
+        let rec = recording.map { [EngineOutput.sampler(.stop($0))] } ?? []
+        heldKeys = [:]; presses = [:]; shiftHeld = false; picker = nil; recording = nil; recordTrigger = nil
         stack.removeAll { $0.activation == .hold }
-        return steps.isEmpty ? [.redraw] : [.plan(Plan(steps: steps, pane: nil, agentSession: nil, label: "release")), .redraw]
+        return rec + (steps.isEmpty ? [.redraw] : [.plan(Plan(steps: steps, pane: nil, agentSession: nil, label: "release")), .redraw])
     }
 
     public var holdingKeys: Bool { !heldKeys.isEmpty }
+
+    // MARK: sampler
+
+    /// The app stopped the recording itself (its length limit): the pad stops showing it and doesn't record again.
+    public func recordingEnded() {
+        for (c, p) in presses where p.drum == recording { presses[c]?.chorded = true }
+        recording = nil; recordTrigger = nil
+    }
+
+    /// The drum pad held down (its press), if any.
+    var heldDrum: Press? { presses.values.filter { $0.drum != nil }.min { $0.down < $1.down } }
+
+    /// While a drum pad is held, ● records a sound for it (until ● is let go) and ⏸ erases its sample — instead of
+    /// Talk and Esc. A recording ends when the control that started it (the pad, or ●) is let go.
+    func samplerInput(_ e: ControlEvent, now: Double) -> [EngineOutput]? {
+        switch e {
+        case .down(let c) where c == "rec" || c == "pause":
+            guard let (pad, p) = presses.first(where: { $0.value.drum != nil }), let key = p.drum else { return nil }
+            presses[pad]?.chorded = true
+            presses[c] = Press(binding: nil, layer: nil, down: now, fired: true, role: nil)
+            if c == "pause" { return [.sampler(.erase(key)), .redraw] }
+            guard recording == nil else { return [] }
+            recording = key; recordTrigger = c
+            return [.sampler(.record(key)), .redraw]
+        case .up(let c) where c == recordTrigger:
+            presses[c] = nil
+            let key = recording
+            recording = nil; recordTrigger = nil
+            return key.map { [.sampler(.stop($0)), .redraw] } ?? [.redraw]
+        default:
+            return nil
+        }
+    }
 
     // MARK: pickers
 
@@ -506,10 +620,13 @@ public final class Engine {
             if config.layers[Engine.listLayer] != nil, c != "search" {
                 presses[c] = Press(binding: nil, layer: nil, down: now, fired: true, role: nil)
                 if c == "left" || c == "right" { return pickerInput(.turn(c, c == "left" ? -1 : 1), now: now, ctx: ctx, snap: snap) }
-                switch resolve(c, ctx, snap)?.0.action {
+                let r = resolve(c, ctx, snap)
+                switch r?.0.action {
                 case .decide(true)?: break                                          // green ✓: take it (below)
                 case .decide(false)?: picker = nil; return [soundOnly("cancel"), .redraw]   // red ✕
-                default: return []                                                  // a dark pad: nothing
+                default:                                                            // the rest: drums, or nothing
+                    if let b = r?.0, b.params["drum"] != nil, let s = b.sound, !s.isEmpty { return [soundOnly(s)] }
+                    return []
                 }
             }
             picker = nil
@@ -592,7 +709,7 @@ public final class Engine {
 
     func fire(_ action: Action?, binding: Binding, layer: Layer, control: String, now: Double, ctx: Context, snap: Snapshot) -> [EngineOutput] {
         guard let action else {
-            // a binding that only plays a sound (e.g. drums on empty window pads)
+            // a binding that only plays a sound (e.g. the drums on idle pads)
             if let s = binding.sound, !s.isEmpty { return [soundOnly(s)] }
             return []
         }
@@ -819,6 +936,14 @@ public final class Engine {
     // MARK: appearance
 
     public func appearance(_ control: String, ctx: Context, snap: Snapshot) -> Appearance {
+        if let p = heldDrum, control == "rec" || (control == "pause" && p.sample) {
+            let rec = control == "rec"
+            var a = Appearance(label: rec ? (recording == nil ? "● Record" : "● Recording") : "Erase sample",
+                               color: config.settings.color(rec ? "danger" : "warn"), blink: false, bound: true,
+                               detail: rec ? "record a sound for the held pad while ● is down" : "the held pad goes back to its drum")
+            a.key = rec ? "danger" : "warn"; a.selected = rec && recording != nil
+            return a
+        }
         if let r = role(of: control) {
             let label = r == "shift" ? "Shift" : r == "legend" ? "Legend" : r.capitalized
             return Appearance(label: label, color: config.settings.color(shiftHeld && r == "shift" ? "#ffffff" : "sys"),
@@ -886,8 +1011,8 @@ public final class Engine {
                 if r.bundleId == ctx.app { a.selected = true } else { a.windowSlot = true }
             } else { a.key = "off"; a.color = config.settings.color("off") }
         }
-        if b.look == "choice", case .answer(let n)? = b.action, n > (snap["q.count"].int ?? 0) {
-            a.label = ""; a.detail = "no option here"        // a short question: the rest of rows 1–2 stays grey
+        if let key = b.params["drum"]?.string, key == recording {
+            a.label = "● Rec"; a.color = config.settings.color("danger"); a.key = "danger"; a.blink = false; a.selected = true
         }
         if b.look == "agent_slot", let n = b.params["slot"]?.int {
             if n > (snap["agents.count"].int ?? 0) { a.label = ""; a.detail = "no agent" }

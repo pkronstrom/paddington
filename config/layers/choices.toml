@@ -2,7 +2,7 @@
 # Paddington reads it from the screen (and from Claude's hook payload), so the options are exactly what's shown.
 # Pads 1–8 are the options: white, the ones answered in words magenta, and the one under the agent's cursor
 # (what ▶ takes) green and blinking — blinking always means "this waits for you now". Pads past the last option
-# stay grey and do nothing (no windows or drums from below). The top row is a red ✕ (Esc).
+# are drums (nothing from the layers below acts). The top row is a red ✕ (Esc).
 # The free-form option ("Type something", "Other", "No, and tell Claude…") starts VoiceInk hands-free —
 # then ● pastes, ▶ pastes and sends.
 name  = "Choose"

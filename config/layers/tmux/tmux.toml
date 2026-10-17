@@ -15,17 +15,15 @@ play  = { label = "Enter",       keys = "enter", color = "ok", hold = { legend =
 pause = { label = "Esc",         keys = "esc", color = "warn", desc = "Esc on press" }
 
 # ── rows 1–2: windows 1–8 ─────────────────────────────────────
-# Window pads whose window doesn't exist play drums. The empty = { … } bindings are a kit in priority order
-# (pad1's first): the lowest empty pad gets Kick, the next Snare, then Hat, Open hat, Clap, toms, Cowbell —
-# so even two empty pads make a beat. Sounds are set in config.toml [sounds].
-pad1 = { label = "Win 1", tmux = ["select-window", "-t", "{session}:1"], look = "agent_status", win = 1, empty = { label = "Kick", sound = "kick", color = "drum" } }
-pad2 = { label = "Win 2", tmux = ["select-window", "-t", "{session}:2"], look = "agent_status", win = 2, empty = { label = "Snare", sound = "snare", color = "drum" } }
-pad3 = { label = "Win 3", tmux = ["select-window", "-t", "{session}:3"], look = "agent_status", win = 3, empty = { label = "Hat", sound = "hat", color = "drum" } }
-pad4 = { label = "Win 4", tmux = ["select-window", "-t", "{session}:4"], look = "agent_status", win = 4, empty = { label = "Open hat", sound = "openhat", color = "drum" } }
-pad5 = { label = "Win 5", tmux = ["select-window", "-t", "{session}:5"], look = "agent_status", win = 5, empty = { label = "Clap", sound = "clap", color = "drum" } }
-pad6 = { label = "Win 6", tmux = ["select-window", "-t", "{session}:6"], look = "agent_status", win = 6, empty = { label = "Low tom", sound = "tom_low", color = "drum" } }
-pad7 = { label = "Win 7", tmux = ["select-window", "-t", "{session}:7"], look = "agent_status", win = 7, empty = { label = "High tom", sound = "tom_high", color = "drum" } }
-pad8 = { label = "Win 8", tmux = ["select-window", "-t", "{session}:8"], look = "agent_status", win = 8, empty = { label = "Cowbell", sound = "cowbell", color = "drum" } }
+# Window pads whose window doesn't exist are drums, like every pad with nothing to do (config.toml [sounds] kit).
+pad1 = { label = "Win 1", tmux = ["select-window", "-t", "{session}:1"], look = "agent_status", win = 1 }
+pad2 = { label = "Win 2", tmux = ["select-window", "-t", "{session}:2"], look = "agent_status", win = 2 }
+pad3 = { label = "Win 3", tmux = ["select-window", "-t", "{session}:3"], look = "agent_status", win = 3 }
+pad4 = { label = "Win 4", tmux = ["select-window", "-t", "{session}:4"], look = "agent_status", win = 4 }
+pad5 = { label = "Win 5", tmux = ["select-window", "-t", "{session}:5"], look = "agent_status", win = 5 }
+pad6 = { label = "Win 6", tmux = ["select-window", "-t", "{session}:6"], look = "agent_status", win = 6 }
+pad7 = { label = "Win 7", tmux = ["select-window", "-t", "{session}:7"], look = "agent_status", win = 7 }
+pad8 = { label = "Win 8", tmux = ["select-window", "-t", "{session}:8"], look = "agent_status", win = 8 }
 
 # ── row 3: 9–10 splits · 11 Last window (the same in agent panes) · 12 Zoom — agents put their verbs on 9–10
 pad9  = { label = "Split →",     tmux = ["split-window", "-h", "-t", "{pane}", "-c", "{pane_path}"], color = "act" }

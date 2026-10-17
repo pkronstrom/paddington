@@ -25,6 +25,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var screenChoices: ScreenChoices?   // a choice prompt on the focused agent's screen
     let dictation = DictationWatcher()
     let drums = DrumSidecar()
+    let sampler = PadSampler()
     var midiNote: Int?        // the note of the MIDI message being handled (nil for simulate/socket input)
     var lastPanesAt = Date.distantPast
     var tmuxFailing = false
@@ -153,6 +154,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             config = c
             padSleep.after = c.settings.sleepAfter
             if let e = engine { e.reload(c) } else { engine = Engine(config: c) }
+            loadSamples()
             if decoder?.profile.name != c.device.name || decoder == nil || !initial { decoder = DeviceDecoder(profile: c.device) }
             legend.position = c.settings.legendPosition
             let scale = CGFloat(max(0.5, min(2, c.settings.legendScale)))
@@ -423,6 +425,77 @@ public final class AppController: NSObject, NSApplicationDelegate {
         return ["ok": true, "steps": steps.count, "seconds": Int(t + 1)]
     }
 
+    // MARK: sampler
+
+    /// Pad samples → the engine (idle pads with one play it instead of their drum).
+    func loadSamples() {
+        let gain = config?.settings.sampleGain ?? 4
+        engine?.samples = PadSampler.load().mapValues { "\($0)@\(gain)" }
+    }
+
+    /// "A.pad3" → "Pad 3" ("Pad 3 (bank B)").
+    static func padName(_ key: String) -> String {
+        let parts = key.split(separator: ".")
+        let n = parts.last.map { $0.replacingOccurrences(of: "pad", with: "Pad ") } ?? key
+        return parts.first == "B" ? "\(n) (bank B)" : n
+    }
+
+    func startSample(_ key: String) {
+        guard !testMode else { Log.write("sampler: \(key) held (no recording in a test instance)"); return }
+        let limit = config?.settings.sampleMax ?? 5
+        render()                                  // the pad turns red now: starting the microphone takes a moment
+        if let problem = sampler.start(key, maxSeconds: limit) { Log.write("sampler: \(key): \(problem)"); legend.toast(problem); return }
+        Log.write("sampler: recording \(key) (\(sampler.inputName))")
+        legend.toast("● Recording \(Self.padName(key)) — let go to stop")
+        DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self] in
+            guard let self, self.sampler.recording == key else { return }
+            self.engine?.recordingEnded()
+            self.finishSample(key)
+        }
+    }
+
+    func finishSample(_ key: String) {
+        guard sampler.recording == key else { return }
+        let name = Self.padName(key)
+        switch sampler.stop() {
+        case .saved(let sec, let level):
+            Log.write("sampler: \(key) saved (\(String(format: "%.2f", sec)) s, peak \(level) dBFS)")
+            legend.toast("\(name): your sample (\(String(format: "%.1f", sec)) s) · hold again to replace")
+        case .silent(let level):
+            Log.write("sampler: \(key) nothing recorded (peak \(level) dBFS)")
+            legend.toast("\(name): no sound recorded — it keeps what it had")
+        case .failed(let why):
+            Log.write("sampler: \(key) failed: \(why)")
+            legend.toast("\(name): couldn't record (\(why))")
+        }
+        loadSamples()
+        render()
+    }
+
+    func eraseSample(_ key: String) {
+        let name = Self.padName(key)
+        if PadSampler.erase(key) {
+            Log.write("sampler: \(key) erased")
+            legend.toast("\(name): sample erased — back to its drum")
+        } else {
+            legend.toast("\(name) has no sample to erase")
+        }
+        loadSamples()
+        render()
+    }
+
+    @objc func eraseSampleItem(_ item: NSMenuItem) {
+        if let key = item.representedObject as? String { eraseSample(key) }
+    }
+
+    @objc func clearSamples() {
+        PadSampler.clearAll()
+        Log.write("sampler: all samples cleared")
+        legend.toast("Pad samples cleared — the drums are back")
+        loadSamples()
+        render()
+    }
+
     @objc func sleepNow() {
         padSleep.sleep()
         Log.write("pad asleep (menu)")
@@ -602,6 +675,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
             case .legend(let cmd): legend.apply(cmd)
             case .search: openSearch()
             case .dictate: startDictation()
+            case .sampler(.record(let key)): startSample(key)
+            case .sampler(.stop(let key)): finishSample(key)
+            case .sampler(.erase(let key)): eraseSample(key)
             case .input(let r):
                 if testMode { break }
                 if let s = config?.settings { sounds.play("picker", settings: s) }
@@ -753,11 +829,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
     func updateDrums(_ cfg: Config, _ e: Engine, _ snap: Snapshot) {
         guard !testMode else { return }     // the map file is shared: a test copy must never touch it
         guard cfg.settings.soundsEnabled, !paused, !padSleep.asleep else { drums.update(source: cfg.device.match, entries: [:]); return }
-        var entries: [Int: (String, Double)] = [:]
+        var entries: [Int: (file: String, gain: Double, gate: Bool)] = [:]
         for c in cfg.device.controls where c.kind == .pad {
             guard let note = c.note, let (b, _) = e.resolve(c.name, context, snap, shift: c.bank == "B"),
                   b.action == nil, let key = b.sound, let (path, gain) = SoundPlayer.file(key, settings: cfg.settings) else { continue }
-            entries[note] = (path, min(1, cfg.settings.soundVolume * gain))
+            entries[note] = (path, min(1, cfg.settings.soundVolume * gain), b.params["gate"]?.bool ?? false)
         }
         drums.update(source: cfg.device.match, entries: entries, curve: cfg.settings.drumCurve, floor: cfg.settings.drumFloor, full: cfg.settings.drumFull)
     }
@@ -774,7 +850,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     var menuSignature = ""
     func rebuildMenu() {
         let path = engine?.layerPath(context, now: now) ?? "-"
-        let sig = "\(path)|\(lastError ?? "")|\(paused)|\(padSourcePresent)|\(ble?.status ?? "")|\(AXIsProcessTrusted())|\(Self.loginAgent.status.rawValue)|\(leds.status)|\(ledNight)|\(agentSounds)|\(padSleep.asleep)"
+        let sig = "\(path)|\(lastError ?? "")|\(paused)|\(padSourcePresent)|\(ble?.status ?? "")|\(AXIsProcessTrusted())|\(Self.loginAgent.status.rawValue)|\(leds.status)|\(ledNight)|\(agentSounds)|\(padSleep.asleep)|\(engine?.samples.keys.sorted().joined(separator: ",") ?? "")"
         guard sig != menuSignature else { return }
         menuSignature = sig
         let menu = NSMenu()
@@ -800,6 +876,18 @@ public final class AppController: NSObject, NSApplicationDelegate {
         menu.addItem(login)
         info("Pad lights: \(leds.status)\(padSleep.asleep ? " · asleep — any press wakes them" : "")")
         if !padSleep.asleep { item("Sleep pad lights now", #selector(sleepNow)) }
+        if let samples = engine?.samples, !samples.isEmpty {
+            let sub = NSMenu()
+            for key in samples.keys.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }) {
+                let i = NSMenuItem(title: Self.padName(key), action: #selector(eraseSampleItem(_:)), keyEquivalent: "")
+                i.target = self; i.representedObject = key; sub.addItem(i)
+            }
+            sub.addItem(.separator())
+            let all = NSMenuItem(title: "All (\(samples.count))", action: #selector(clearSamples), keyEquivalent: "")
+            all.target = self; sub.addItem(all)
+            let top = NSMenuItem(title: "Erase pad sample", action: nil, keyEquivalent: ""); top.submenu = sub
+            menu.addItem(top)
+        }
         let night = NSMenuItem(title: "Dim pad lights (night)", action: #selector(toggleNight), keyEquivalent: "")
         night.target = self
         night.state = ledNight ? .on : .off

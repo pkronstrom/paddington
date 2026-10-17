@@ -20,7 +20,7 @@ window 3 is done, and the grey text on a pad or knob is its bank-B action.*
 - **Lists on the knobs:** model, thinking level, skills, prompts, sites and windows. Any knob scrolls, and the green pad picks.
 - **Voice** through VoiceInk: ● talks, and ▶ presses Enter once the text is in. Skills and
   prompts can be searched by voice.
-- **Pad lights over Bluetooth**, using seven hues that are easy to tell apart. Empty window pads play TR-707 drums.
+- **Pad lights over Bluetooth**, using seven hues that are easy to tell apart. Every pad with nothing to do plays a TR-707 drum; hold one to record your own sound for it.
 - **Everything is TOML** in `~/.config/paddington/`, and edits hot-reload.
 
 ## Quick start

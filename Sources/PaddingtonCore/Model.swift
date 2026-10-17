@@ -400,7 +400,7 @@ public struct Settings {
         // 7 clearly separate hues only: red, green, blue, yellow, cyan, magenta, white
         "nav": "#0000ff", "act": "#ffff00", "new": "#00ff00", "skill": "#ff00ff", "danger": "#ff0000", "sys": "#00ffff",
         "ok": "#00ff00", "warn": "#ffff00", "voice": "#ff0000", "off": "#000000",
-        "drum": "#000000",   // drums on empty window pads stay dark, so a dark pad still means "no window"
+        "drum": "#000000", "sample": "#000000",   // drums on idle pads stay dark: a dark pad still means "nothing here"
         "choice": "#ffffff", "choice_voice": "#ff00ff",   // a question's options (the one under its cursor: ok)
         "unknown": "#0000ff", "idle": "#ffffff", "working": "#00ffff", "needs_approval": "#ff00ff",
         "needs_input": "#ffff00", "done_unread": "#00ff00", "error": "#ff0000", "compacting": "#00ffff",
@@ -412,6 +412,12 @@ public struct Settings {
     public var drumCurve = 0.5             // velocity → drum loudness: 1 = linear, lower = soft hits play louder
     public var drumFloor = 0.55            // loudness of the softest hit (0–1)
     public var drumFull = 48.0             // the velocity that already counts as a full hit (the SMC-PAD rarely sends > 40)
+    /// Drums on idle pads, in the order they're handed out (lowest idle pad first); labels come from the names.
+    public var drumKit = ["kick", "snare", "hat", "open_hat", "clap", "low_tom", "high_tom", "cowbell"]
+    public var sampleHold = 0.8            // seconds holding an idle pad before it records a sample for itself
+    public var sampleMax = 5.0             // longest sample (seconds); recording stops there even if still held
+    public var sampleGain = 4.0            // a sample's loudness relative to [sounds] volume (the kit's "@4")
+    public var sampleMode = "gate"         // gate: a sample plays while its pad is held · one_shot: always to the end
     /// Sound names: colour categories (a binding's group) and named sounds bindings refer to with sound = "name".
     /// Values are macOS system sounds (Tink, Pop, …), a file path, or "" for silence.
     public var sounds: [String: String] = [
@@ -425,7 +431,7 @@ public struct Settings {
 
     public static let defaultColors = [
         "nav": "#4dabf7", "act": "#ffa94d", "skill": "#b197fc", "voice": "#ff6b6b", "ok": "#51cf66",
-        "warn": "#fcc419", "danger": "#fa5252", "sys": "#66d9e8", "off": "#3a3a3a", "new": "#51cf66", "drum": "#868e96",
+        "warn": "#fcc419", "danger": "#fa5252", "sys": "#66d9e8", "off": "#3a3a3a", "new": "#51cf66", "drum": "#868e96", "sample": "#e599f7",
         "choice": "#dee2e6", "choice_voice": "#b197fc",
         // agent statuses
         "unknown": "#4dabf7", "idle": "#dee2e6", "working": "#339af0", "needs_approval": "#ff922b",
@@ -465,7 +471,12 @@ public struct Settings {
             if let v = sn["drum_curve"]?.number { s.drumCurve = max(0.05, min(2, v)) }
             if let v = sn["drum_floor"]?.number { s.drumFloor = max(0, min(1, v)) }
             if let v = sn["drum_full"]?.number { s.drumFull = max(1, min(127, v)) }
-            for (k, v) in sn where k != "enabled" && k != "volume" { if let n = v.string { s.sounds[k] = n } }
+            if let v = sn["kit"]?.array { s.drumKit = v.compactMap(\.string).filter { !$0.isEmpty } }
+            if let v = sn["sample_hold"].flatMap(parseDuration) { s.sampleHold = max(0.2, v) }
+            if let v = sn["sample_max"].flatMap(parseDuration) { s.sampleMax = max(0.5, min(30, v)) }
+            if let v = sn["sample_gain"]?.number { s.sampleGain = max(0, v) }
+            if let v = sn["sample_mode"]?.string { s.sampleMode = v }
+            for (k, v) in sn where !["enabled", "volume", "sample_mode"].contains(k) { if let n = v.string { s.sounds[k] = n } }
         }
         let lg = t["legend"]?.table ?? [:]
         if let v = lg["position"]?.string { s.legendPosition = v }

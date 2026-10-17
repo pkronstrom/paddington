@@ -43,6 +43,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>LSEnvironment</key><dict><key>PADDINGTON_APP</key><string>1</string></dict>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Paddington connects to your MIDI pad over Bluetooth.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Hold an empty pad to record a short sound for it (the mini-sampler).</string>
   <key>NSAppleEventsUsageDescription</key><string>Paddington asks iTerm which terminal session is focused, to send keys to the right tmux pane.</string>
 </dict>
 </plist>
@@ -77,6 +78,7 @@ if [[ -n "$IDENTITY" ]]; then
 <plist version="1.0"><dict>
   <key>com.apple.security.automation.apple-events</key><true/>
   <key>com.apple.security.device.bluetooth</key><true/>
+  <key>com.apple.security.device.audio-input</key><true/>
 </dict></plist>
 ENT
   echo "signed with: $IDENTITY"

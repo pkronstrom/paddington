@@ -46,15 +46,28 @@ error  = "Funk"                    # an action failed
 drum_full  = 48                     # velocity that counts as a full hit (the SMC-PAD sends ~10 soft … ~40 firm)
 drum_curve = 0.5                   # loudness vs. how hard you hit: 1 = linear, lower = soft hits louder
 drum_floor = 0.55                  # loudness of the softest hit (0–1); 1 = every hit full volume
-# drums on empty window pads — Roland TR-707 samples (public domain, sounds/tr707/README.txt); any .wav/.aiff path works
+# Drums: every pad with nothing to do on the current layer (no binding, a window that doesn't exist, a question's
+# pad past its last option, …) plays one. The kit is handed out in this order to those pads, lowest pad first, so
+# even two idle pads make a beat (past the end it starts over); a pad's label is its drum's name.
+kit = ["kick", "snare", "hat", "open_hat", "clap", "low_tom", "high_tom", "cowbell"]
+# Roland TR-707 samples (public domain, sounds/tr707/README.txt); any .wav/.aiff path works
 kick     = "sounds/tr707/BassDrum1.wav@4"
 snare    = "sounds/tr707/Snare1.wav@4"
 hat      = "sounds/tr707/HhC.wav@4"
-openhat  = "sounds/tr707/HhO.wav@4"
+open_hat = "sounds/tr707/HhO.wav@4"
 clap     = "sounds/tr707/HandClap.wav@4"
-tom_low  = "sounds/tr707/LowTom.wav@4"
-tom_high = "sounds/tr707/HiTom.wav@4"
+low_tom  = "sounds/tr707/LowTom.wav@4"
+high_tom = "sounds/tr707/HiTom.wav@4"
 cowbell  = "sounds/tr707/CowBell.wav@4"
+# Mini-sampler: hold a drum pad and, once it turns red, it records from the microphone until you let go; from
+# then on that pad plays your sound (trimmed and levelled). While you hold a pad with a sample:
+#   ● (held) records it again until you let go of ●  ·  ⏸ erases it (its drum comes back)
+# — then ● doesn't talk and ⏸ doesn't send Esc. A take without a sound keeps what the pad had. The menu has
+# "Erase pad sample ›" (one pad, or all). Files: ~/Library/Application Support/paddington/samples
+sample_hold = 0.8                  # seconds holding a drum pad before it records
+sample_max  = 5                    # longest sample (seconds)
+sample_gain = 4                    # loudness like the kit's "@4"
+sample_mode = "gate"               # gate: plays while the pad is held (tap = its start) · one_shot: always to the end
 
 [led]                              # pad lights over Bluetooth (bank A = normal layer, bank B = shift layer)
 mode = "live"                      # live: groups + agent status · groups: group colours only · off

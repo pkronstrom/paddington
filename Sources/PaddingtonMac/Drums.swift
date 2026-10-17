@@ -2,7 +2,7 @@ import Foundation
 import PaddingtonCore
 
 /// Runs padbeat (the stand-alone MIDI drum player next to the paddington binary) and keeps its note map current:
-/// every pad note whose binding only plays a sample file (drums on empty window pads) → that file.
+/// every pad note whose binding only plays a sample file (the drums and samples on idle pads) → that file.
 /// padbeat listens to the pad's MIDI itself, so drum hits never wait for paddington. It acknowledges each map
 /// generation in drums.json.ack once loaded and audible; only acknowledged notes are left to it.
 public final class DrumSidecar {
@@ -27,9 +27,9 @@ public final class DrumSidecar {
 
     public var running: Bool { process?.isRunning ?? false }
 
-    /// entries: note → (absolute file path, gain 0–1)
-    public func update(source: String, entries: [Int: (String, Double)], curve: Double = 0.5, floor: Double = 0.55, full: Double = 48) {
-        let list = entries.keys.sorted().map { ["note": $0, "file": entries[$0]!.0, "gain": entries[$0]!.1] as [String: Any] }
+    /// entries: note → (absolute file path, gain 0–1, gate: plays only while the pad is held)
+    public func update(source: String, entries: [Int: (file: String, gain: Double, gate: Bool)], curve: Double = 0.5, floor: Double = 0.55, full: Double = 48) {
+        let list = entries.keys.sorted().map { ["note": $0, "file": entries[$0]!.file, "gain": entries[$0]!.gain, "gate": entries[$0]!.gate] as [String: Any] }
         let body: [String: Any] = ["source": source, "notes": list, "velocity_curve": curve, "velocity_floor": floor, "velocity_full": full]
         guard let content = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return }
         if content != lastContent {

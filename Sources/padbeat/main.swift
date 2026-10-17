@@ -1,7 +1,8 @@
 // padbeat — a minimal MIDI drum player.
 //
 // Listens to MIDI note-ons and plays a sample for each mapped note: preloaded buffers, 16 voices (hits layer
-// instead of cutting each other off), loudness follows velocity. It knows nothing about paddington: it reads one
+// instead of cutting each other off), loudness follows velocity. A "gate" note plays only while it's held: its
+// note-off fades it out. It knows nothing about paddington: it reads one
 // JSON map, applies it when its contents change, and acknowledges it in <map>.ack once it can play it.
 //
 //   padbeat [map.json]   (default: ~/Library/Application Support/paddington/drums.json)
@@ -10,7 +11,7 @@
 //     "source": "SMC-PAD",                                 // MIDI sources whose name contains this ("" = all)
 //     "velocity_curve": 0.5, "velocity_floor": 0.55, "velocity_full": 48,
 //                        // loudness = floor + (1 − floor) · min(1, velocity/full)^curve
-//     "notes": [ { "note": 40, "file": "/path/clap.wav", "gain": 1.0 }, … ] }
+//     "notes": [ { "note": 40, "file": "/path/clap.wav", "gain": 1.0, "gate": false }, … ] }
 //
 // An empty map stops the audio engine. padbeat exits when its parent process does.
 // SIGUSR1 logs its state (engine, voices, output peak and device, hits) to stderr.
@@ -27,7 +28,7 @@ signal(SIGPIPE, SIG_IGN)   // stderr goes to paddington through a pipe
 
 func log(_ s: String) { FileHandle.standardError.write(Data("padbeat: \(s)\n".utf8)) }
 
-struct Hit { let buffer: AVAudioPCMBuffer; let gain: Float }
+struct Hit { let buffer: AVAudioPCMBuffer; let gain: Float; var gate = false }
 
 struct KitMap {
     var generation = 0
@@ -43,6 +44,8 @@ final class Kit {
     let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
     var voices: [AVAudioPlayerNode] = []
     var next = 0
+    var voiceNote: [UInt8?] = Array(repeating: nil, count: 16)   // the note each voice last started
+    var voiceToken = Array(repeating: 0, count: 16)              // bumped on every hit: a fade leaves a reused voice alone
     var map = KitMap()
     var cache: [String: AVAudioPCMBuffer] = [:]     // key: path + modification time
     var hits = 0, misses = 0, lastNote: UInt8 = 0
@@ -102,13 +105,31 @@ final class Kit {
         hits += 1
         if !engine.isRunning { supervise() }
         guard engine.isRunning else { return }
-        let v = voices[next]
+        let i = next, v = voices[i]
         next = (next + 1) % voices.count
+        voiceToken[i] += 1; voiceNote[i] = note
+        v.volume = 1
         let level = h.gain * (map.floor + (1 - map.floor) * powf(min(1, Float(velocity) / map.full), map.curve))
         // the loudness is baked into a copy of the sample: a player's volume only changes on the next render
         // cycle, after a drum's attack has already played at the voice's previous volume
         v.scheduleBuffer(scaled(h.buffer, by: level) ?? h.buffer, at: nil, options: .interrupts)
         if !v.isPlaying { v.play() }
+    }
+
+    /// On `queue`. A note-off: a gate note's voices fade out over ~36 ms (stopping dead would click).
+    func release(_ note: UInt8) {
+        guard map.notes[note]?.gate == true else { return }
+        let steps = 6
+        for (i, v) in voices.enumerated() where voiceNote[i] == note {
+            voiceNote[i] = nil
+            let token = voiceToken[i]
+            for s in 1...steps {
+                queue.asyncAfter(deadline: .now() + 0.006 * Double(s)) { [weak self] in
+                    guard let self, self.voiceToken[i] == token else { return }
+                    if s < steps { v.volume = Float(steps - s) / Float(steps) } else { v.stop(); v.volume = 1; v.play() }
+                }
+            }
+        }
     }
 
     /// A copy of `b` multiplied by `g` (a short drum sample: well under a millisecond).
@@ -167,7 +188,7 @@ final class Kit {
         for n in obj["notes"] as? [[String: Any]] ?? [] {
             guard let note = n["note"] as? Int, (0...127).contains(note), let file = n["file"] as? String else { continue }
             guard let buf = load(file) else { failed = true; continue }
-            m.notes[UInt8(note)] = Hit(buffer: buf, gain: Float(n["gain"] as? Double ?? 1))
+            m.notes[UInt8(note)] = Hit(buffer: buf, gain: Float(n["gain"] as? Double ?? 1), gate: n["gate"] as? Bool ?? false)
         }
         if failed { return false }          // a sample didn't load: keep the old kit and retry next tick
         map = m
@@ -228,10 +249,11 @@ MIDIInputPortCreateWithProtocol(client, "padbeat-in" as CFString, ._1_0, &port) 
         var i = 0
         while i < count {
             let w = words[i], type = w >> 28
-            // MIDI 1.0 channel voice: note-on with velocity > 0
-            if type == 0x2, (w >> 20) & 0xF == 0x9, w & 0x7F > 0 {
+            // MIDI 1.0 channel voice: note-on with velocity > 0; note-off (or note-on with velocity 0)
+            if type == 0x2, (w >> 20) & 0xF == 0x9 || (w >> 20) & 0xF == 0x8 {
                 let note = UInt8((w >> 8) & 0x7F), vel = UInt8(w & 0x7F)
-                kit.queue.async { kit.hit(note, velocity: vel) }
+                if (w >> 20) & 0xF == 0x9 && vel > 0 { kit.queue.async { kit.hit(note, velocity: vel) } }
+                else { kit.queue.async { kit.release(note) } }
             }
             i += type >= 0x3 && type <= 0x4 ? 2 : (type == 0x5 ? 4 : 1)
         }

@@ -23,6 +23,13 @@ func itermContext(cmd: String = "claude", window: Int = 2) -> Context {
 /// Windows 1–3 exist (as in itermContext), so window pads switch windows instead of playing drums.
 let windowsSnap = Snapshot(values: ["win.1.exists": .bool(true), "win.2.exists": .bool(true), "win.3.exists": .bool(true)])
 
+/// An idle pad: a drum — dark, and a press only plays its sound.
+func isDrum(_ a: Appearance) -> Bool { a.key == "drum" || a.key == "sample" }
+func drumOnly(_ outs: [EngineOutput]) -> Bool {
+    let p = plans(outs)
+    return p.count == 1 && p[0].steps.isEmpty && !(p[0].sound ?? "").isEmpty
+}
+
 func plans(_ outs: [EngineOutput]) -> [Plan] {
     outs.compactMap { if case .plan(let p) = $0 { return p }; return nil }
 }
@@ -98,9 +105,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(p1.label == "2 · w2" && p1.note == "Claude approve?" && p1.blink)
         #expect(p2.label == "3 · w3" && p2.note == "Claude done ✓" && p2.blink)
         #expect(p3.label == "1 · w1" && p3.note == "Claude working" && !p3.blink)
-        #expect(p4.label == "" && p4.key == "off")
-        #expect(plans(e.handle(.down("pad4"), now: 12, ctx: ctx, snap: snap)).isEmpty)       // no agent there
-        #expect(e.appearance("pad15", ctx: ctx, snap: snap).bound == false)                   // row 4: only Sounds
+        #expect(isDrum(p4) && drumOnly(e.handle(.down("pad4"), now: 12, ctx: ctx, snap: snap)))   // no agent there: a drum
+        #expect(isDrum(e.appearance("pad15", ctx: ctx, snap: snap)))                          // row 4: only Sounds
         #expect(e.appearance("pad13", ctx: ctx, snap: snap).label == "🔔 Sounds on" && e.appearance("pad13", ctx: ctx, snap: snap).key == "ok")
         var muted = snap; muted.values["sounds.agents"] = .bool(false)
         #expect(e.appearance("pad13", ctx: ctx, snap: muted).label == "🔕 Sounds muted" && e.appearance("pad13", ctx: ctx, snap: muted).key == "danger")
@@ -441,6 +447,79 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let w = plans(e.handle(.down("pad1"), now: 0.3, ctx: ctx, snap: snap))
         #expect(w.first?.steps == [.tmux(["select-window", "-t", "main:1"])])
     }
+
+    /// Every idle pad is a drum, the kit handed out in pad order and starting over past its end.
+    @Test func kitGoesRoundTheIdlePads() throws {
+        let e = Engine(config: try loadConfig())
+        var ctx = Context(); ctx.app = "com.example.nothing"            // the default layer
+        let idle = (1...16).map { "pad\($0)" }.filter { isDrum(e.appearance($0, ctx: ctx, snap: Snapshot())) }
+        let kit = e.config.settings.drumKit
+        #expect(kit.first == "kick" && Engine.drumLabel("open_hat") == "Open hat")
+        for (i, pad) in idle.enumerated() {
+            #expect(e.appearance(pad, ctx: ctx, snap: Snapshot()).label == Engine.drumLabel(kit[i % kit.count]))
+        }
+    }
+
+    /// Hold a drum pad: it records (red, blinking) until it's let go; a tap only plays it. A recorded pad plays its
+    /// sample, and the kit skips it.
+    @Test func holdADrumToSample() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        let snap = Snapshot(values: ["win.1.exists": .bool(true)])        // pads 2–8: drums
+        #expect(drumOnly(e.handle(.down("pad3"), now: 0, ctx: ctx, snap: snap)))
+        #expect(e.tick(now: 0.5, ctx: ctx, snap: snap).isEmpty)
+        #expect(e.handle(.up("pad3"), now: 0.6, ctx: ctx, snap: snap).isEmpty)                    // a tap
+        _ = e.handle(.down("pad3"), now: 1, ctx: ctx, snap: snap)
+        #expect(e.tick(now: 1.9, ctx: ctx, snap: snap).contains(.sampler(.record("A.pad3"))))
+        #expect(e.tick(now: 2.0, ctx: ctx, snap: snap).isEmpty)                                   // once
+        let rec = e.appearance("pad3", ctx: ctx, snap: snap)
+        #expect(rec.key == "danger" && !rec.blink && rec.selected && rec.label == "● Rec")      // solid red
+        #expect(e.handle(.up("pad3"), now: 3, ctx: ctx, snap: snap).contains(.sampler(.stop("A.pad3"))))
+        #expect(e.recording == nil)
+        // the sample plays on pad 3; pad 2 keeps the kick, pad 4 gets the snare
+        e.samples = ["A.pad3": "/tmp/A.pad3.1.wav@4"]
+        let a3 = e.appearance("pad3", ctx: ctx, snap: snap)
+        #expect(a3.label == "Sample" && a3.key == "sample")
+        #expect(e.resolve("pad3", ctx, snap)?.0.params["gate"] == .bool(true))                // plays while held
+        #expect(plans(e.handle(.down("pad3"), now: 4, ctx: ctx, snap: snap)).first?.sound == "/tmp/A.pad3.1.wav@4")
+        #expect(e.tick(now: 6, ctx: ctx, snap: snap).isEmpty)                                    // holding it never records
+        _ = e.handle(.up("pad3"), now: 6.1, ctx: ctx, snap: snap)
+        #expect(e.appearance("pad2", ctx: ctx, snap: snap).label == "Kick" && e.appearance("pad4", ctx: ctx, snap: snap).label == "Snare")
+        // a pad that does something never records
+        _ = e.handle(.down("pad1"), now: 7, ctx: ctx, snap: snap)
+        #expect(!e.tick(now: 8, ctx: ctx, snap: snap).contains { if case .sampler = $0 { return true }; return false })
+        _ = e.handle(.up("pad1"), now: 8.1, ctx: ctx, snap: snap)
+    }
+
+    /// Hold a sample pad: ● records again (until ● is let go, not the pad), ⏸ erases it — neither talks nor sends
+    /// Esc then. Without a held drum pad they do what they always do.
+    @Test func recordAndEraseWithTheButtons() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        let snap = Snapshot(values: ["win.1.exists": .bool(true)])
+        e.samples = ["A.pad3": "/tmp/A.pad3.1.wav@4"]
+        _ = e.handle(.down("pad3"), now: 0, ctx: ctx, snap: snap)
+        #expect(e.appearance("rec", ctx: ctx, snap: snap).label == "● Record")
+        #expect(e.appearance("pause", ctx: ctx, snap: snap).label == "Erase sample")
+        #expect(e.handle(.down("rec"), now: 0.3, ctx: ctx, snap: snap) == [.sampler(.record("A.pad3")), .redraw])
+        _ = e.handle(.up("pad3"), now: 0.5, ctx: ctx, snap: snap)                                // still recording
+        #expect(e.recording == "A.pad3")
+        #expect(e.handle(.up("rec"), now: 1.5, ctx: ctx, snap: snap) == [.sampler(.stop("A.pad3")), .redraw])
+        _ = e.handle(.down("pad3"), now: 2, ctx: ctx, snap: snap)
+        #expect(e.handle(.down("pause"), now: 2.2, ctx: ctx, snap: snap) == [.sampler(.erase("A.pad3")), .redraw])
+        #expect(e.handle(.up("pause"), now: 2.3, ctx: ctx, snap: snap).isEmpty)                  // no Esc on release either
+        _ = e.handle(.up("pad3"), now: 2.4, ctx: ctx, snap: snap)
+        // nothing held: ⏸ is Esc again
+        #expect(plans(e.handle(.down("pause"), now: 3, ctx: ctx, snap: snap)).first?.steps.isEmpty == false)
+        _ = e.handle(.up("pause"), now: 3.1, ctx: ctx, snap: snap)
+        // a press that lost its release stops counting as held after a while
+        _ = e.handle(.down("pad4"), now: 4, ctx: ctx, snap: snap)
+        _ = e.tick(now: 4.9, ctx: ctx, snap: snap)
+        e.recordingEnded()                                                                       // the app's length limit
+        #expect(e.recording == nil && e.tick(now: 6, ctx: ctx, snap: snap).isEmpty)              // and no new recording
+        _ = e.tick(now: 30, ctx: ctx, snap: snap)
+        #expect(plans(e.handle(.down("pause"), now: 30.1, ctx: ctx, snap: snap)).first?.steps.isEmpty == false)
+    }
 }
 
 @Suite struct ConfigTests {
@@ -595,7 +674,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let ctx = itermContext()
         e.padBank = "B"
         #expect(e.baseLayer(ctx).id == "claude")
-        let p = plans(e.handle(.down("pad5"), now: 0.1, ctx: ctx, snap: Snapshot()))
+        let p = plans(e.handle(.down("pad5"), now: 0.1, ctx: ctx, snap: Snapshot(values: ["win.9.exists": .bool(true)])))
         #expect(p.first?.steps == [.tmux(["select-window", "-t", "main:9"])])
         #expect(!e.layerPath(ctx, now: 0).contains("Shift"))   // the bank lags, so the header doesn't claim it
         e.padBank = "A"
@@ -613,10 +692,10 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(asked.first?.steps == [.toast("Close? ✓ green · ✕ red")])
         #expect(e.stack.last?.layer == "confirm")
         #expect(e.appearance("pad11", ctx: ctx, snap: Snapshot()).label == "✓ Close")
-        #expect(e.appearance("pad5", ctx: ctx, snap: Snapshot()).bound == false)        // other pads are off
-        #expect(plans(e.handle(.down("pad5"), now: 0.6, ctx: ctx, snap: Snapshot())).isEmpty)
+        #expect(isDrum(e.appearance("pad5", ctx: ctx, snap: Snapshot())))               // other pads are drums
+        #expect(drumOnly(e.handle(.down("pad5"), now: 0.6, ctx: ctx, snap: Snapshot())))
         #expect(e.appearance("pad6", ctx: ctx, snap: Snapshot()).label == "✕ Cancel" && e.appearance("pad7", ctx: ctx, snap: Snapshot()).label == "✓ Close")
-        #expect(e.appearance("pad16", ctx: ctx, snap: Snapshot()).bound == false)        // only the middle four are lit
+        #expect(isDrum(e.appearance("pad16", ctx: ctx, snap: Snapshot())))              // only the middle four are lit
         // red: dropped
         _ = e.handle(.down("pad10"), now: 0.7, ctx: ctx, snap: Snapshot())
         #expect(e.stack.isEmpty && e.pendingConfirm == nil)
@@ -657,7 +736,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(plans(e.handle(.down("pad11"), now: 0, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("1")])])
         #expect(plans(e.handle(.down("pad12"), now: 0.1, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("2")])])
         #expect(plans(e.handle(.down("pad10"), now: 0.2, ctx: ctx, snap: snap)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
-        #expect(e.appearance("pad1", ctx: ctx, snap: snap).bound == false)          // window pads are off meanwhile
+        #expect(isDrum(e.appearance("pad1", ctx: ctx, snap: snap)))                 // window pads are drums meanwhile
     }
 
     /// A question: only the option under the cursor is green and blinks; the rest white, free-form magenta;
@@ -692,7 +771,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let snap2 = Snapshot(values: windowsSnap.values.merging(permit.vars) { $1 })
         #expect(e.appearance("pad6", ctx: ctx, snap: snap2).label == "✕ No" && e.appearance("pad7", ctx: ctx, snap: snap2).label == "✓ Yes")
         #expect(plans(e.handle(.down("pad6"), now: 1, ctx: ctx, snap: snap2)).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
-        #expect(e.appearance("pad15", ctx: ctx, snap: snap2).bound == false)
+        #expect(isDrum(e.appearance("pad15", ctx: ctx, snap: snap2)))
     }
 
     @Test func newTapSplitsHoldOpensPicker() throws {
@@ -852,7 +931,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     }
 
     /// Claude's question as it really looks: 4 options, then "Type something." and "Chat about this" — both magenta
-    /// (answered in words), pads 7–8 grey and silent instead of the windows / drums underneath.
+    /// (answered in words), pads 7–8 drums instead of the windows underneath.
     @Test func shortQuestionLeavesTheRestGrey() throws {
         let e = Engine(config: try loadConfig())
         let ctx = itermContext()
@@ -869,8 +948,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let a = (1...8).map { e.appearance("pad\($0)", ctx: ctx, snap: snap) }
         #expect(a[0].key == "ok" && a[1].key == "choice" && a[3].key == "choice")
         #expect(a[4].key == "choice_voice" && a[5].key == "choice_voice")
-        #expect(a[6].key == "off" && a[6].label == "" && a[7].key == "off")
-        #expect(plans(e.handle(.down("pad7"), now: 0, ctx: ctx, snap: snap)).isEmpty)
+        #expect(isDrum(a[6]) && isDrum(a[7]))
+        #expect(drumOnly(e.handle(.down("pad7"), now: 0, ctx: ctx, snap: snap)))
         // "Chat about this" picks it and starts dictation, like "Type something"
         #expect(e.handle(.down("pad6"), now: 1, ctx: ctx, snap: snap).contains(.dictate))
     }
@@ -899,7 +978,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let ctx = itermContext()
         _ = e.handle(.down("pad10"), now: 0, ctx: ctx, snap: Snapshot())         // Rewind
         _ = e.handle(.up("pad10"), now: 0.1, ctx: ctx, snap: Snapshot())
-        #expect(plans(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: Snapshot())).isEmpty)   // off
+        #expect(drumOnly(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: Snapshot())))   // a drum
         let p = plans(e.handle(.down("pad11"), now: 1, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("enter")])])
         #expect(e.stack.last?.layer == "menu-nav")      // rewind's second menu
@@ -908,7 +987,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         // red: Esc, and the menu mode ends at once
         _ = e.handle(.down("pad10"), now: 3, ctx: ctx, snap: Snapshot())         // Rewind again
         _ = e.handle(.up("pad10"), now: 3.1, ctx: ctx, snap: Snapshot())
-        #expect(plans(e.handle(.down("pad13"), now: 3.2, ctx: ctx, snap: Snapshot())).isEmpty)                 // off
+        #expect(drumOnly(e.handle(.down("pad13"), now: 3.2, ctx: ctx, snap: Snapshot())))                      // a drum
         #expect(plans(e.handle(.down("pad6"), now: 3.5, ctx: ctx, snap: Snapshot())).first?.steps == [.tmuxKeys(pane: "%2", [try KeyChord.parse("esc")])])
         #expect(e.stack.isEmpty)
     }
@@ -921,9 +1000,9 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(e.appearance("pad11", ctx: ctx, snap: Snapshot()).key == "ok")
         #expect(e.appearance("pad7", ctx: ctx, snap: Snapshot()).key == "ok")
         #expect(e.appearance("pad6", ctx: ctx, snap: Snapshot()).key == "danger" && e.appearance("pad10", ctx: ctx, snap: Snapshot()).key == "danger")
-        #expect(e.appearance("pad14", ctx: ctx, snap: Snapshot()).bound == false)
-        #expect(e.appearance("pad3", ctx: ctx, snap: Snapshot()).bound == false)        // window pads are off meanwhile
-        #expect(plans(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: Snapshot())).isEmpty && e.picker != nil)
+        #expect(isDrum(e.appearance("pad14", ctx: ctx, snap: Snapshot())))
+        #expect(isDrum(e.appearance("pad3", ctx: ctx, snap: Snapshot())))               // window pads are drums meanwhile
+        #expect(drumOnly(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: Snapshot())) && e.picker != nil)
         let p = plans(e.handle(.down("pad11"), now: 1, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxText(pane: "%2", "/effort low\n")])
         #expect(plans(e.handle(.up("pad11"), now: 1.1, ctx: ctx, snap: Snapshot())).isEmpty)
@@ -931,7 +1010,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         _ = e.handle(.turn("knob8", 1), now: 2, ctx: ctx, snap: Snapshot())
         _ = e.handle(.down("right"), now: 2.1, ctx: ctx, snap: Snapshot())
         #expect(e.picker?.index == 2)
-        #expect(plans(e.handle(.down("pad13"), now: 2.15, ctx: ctx, snap: Snapshot())).isEmpty && e.picker != nil)   // off
+        #expect(drumOnly(e.handle(.down("pad13"), now: 2.15, ctx: ctx, snap: Snapshot())) && e.picker != nil)   // a drum
         #expect(plans(e.handle(.down("pad6"), now: 2.2, ctx: ctx, snap: Snapshot())).allSatisfy { $0.steps.isEmpty } && e.picker == nil)
     }
 
@@ -945,9 +1024,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
                                                 "tool_use_id": .string("t"), "tool_input": q], pane: "%2", now: 0)
         let snap = Snapshot.build(context: ctx, agents: s, custom: [:], layerPath: "")
         #expect(e.appearance("pad2", ctx: ctx, snap: snap).label == "2 · Redis")
-        let p3 = e.appearance("pad3", ctx: ctx, snap: snap)                      // only 2 options: pad3 is grey, not Win 3
-        #expect(p3.label == "" && p3.key == "off")
-        #expect(plans(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: snap)).isEmpty)
+        let p3 = e.appearance("pad3", ctx: ctx, snap: snap)                      // only 2 options: pad3 is a drum, not Win 3
+        #expect(isDrum(p3) && drumOnly(e.handle(.down("pad3"), now: 0.5, ctx: ctx, snap: snap)))
         #expect(plans(e.handle(.down("pad2"), now: 1, ctx: ctx, snap: snap)).first?.steps
                 == [.tmuxKeys(pane: "%2", [KeyChord(modifiers: [], key: "2")])])
         #expect(e.layerPath(ctx, now: 1, snap: snap).contains("Choose"))
@@ -1091,8 +1169,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(plans(e.handle(.turn("knob1", -1), now: 0.06, ctx: ctx, snap: Snapshot())).first?.steps == [.mediaKey("volume_down")])
         #expect(plans(e.handle(.down("pad3"), now: 0.1, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("right")])])
         // nothing from the browser underneath: rows 3–4 and the other knobs are off; < still toggles iTerm
-        #expect(e.appearance("pad15", ctx: ctx, snap: Snapshot()).bound == false && e.appearance("knob3", ctx: ctx, snap: Snapshot()).bound == false)
-        #expect(plans(e.handle(.down("pad12"), now: 0.2, ctx: ctx, snap: Snapshot())).isEmpty && e.appearance("pad8", ctx: ctx, snap: Snapshot()).bound == false)
+        #expect(isDrum(e.appearance("pad15", ctx: ctx, snap: Snapshot())) && e.appearance("knob3", ctx: ctx, snap: Snapshot()).bound == false)
+        #expect(drumOnly(e.handle(.down("pad12"), now: 0.2, ctx: ctx, snap: Snapshot())) && isDrum(e.appearance("pad8", ctx: ctx, snap: Snapshot())))
         _ = e.handle(.down("left"), now: 0.3, ctx: ctx, snap: Snapshot())
         #expect(plans(e.handle(.up("left"), now: 0.35, ctx: ctx, snap: Snapshot())).first?.steps == [.keys([try KeyChord.parse("ctrl+<")])])
         // YouTube and meetings keep their own layers when fullscreen
