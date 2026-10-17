@@ -87,14 +87,14 @@ public final class AgentStore {
 
     /// Apply one hook event. Returns true if anything changed.
     @discardableResult
-    public func handle(event: String, payload: [String: Value], pane: String?, now: Double) -> Bool {
+    public func handle(event: String, payload: [String: Value], pane: String?, panes: [PaneInfo] = [], now: Double) -> Bool {
         guard let sid = payload["session_id"]?.string, !sid.isEmpty else { return false }
         let before = agents
         if event == "SessionEnd" { agents[sid] = nil; return before != agents }
 
         var a = agents[sid]
         if a == nil {
-            guard let pane, !pane.isEmpty else { return false }
+            guard let pane = (pane?.isEmpty == false ? pane : nil) ?? backgroundPane(payload, panes: panes) else { return false }
             // a new session in a pane replaces whatever ran there before
             for (k, v) in agents where v.pane == pane { agents[k] = nil }
             a = Agent(sessionId: sid, pane: pane, status: .idle, since: now)
@@ -181,6 +181,31 @@ public final class AgentStore {
             agents[k]?.status = .idle; agents[k]?.since = now; changed = true
         }
         return changed
+    }
+
+    /// A Claude Code background session (a `claude` attached to it in a pane) runs its hooks in Claude's daemon,
+    /// outside tmux, so they come without a pane: it's the one Claude pane in the session's project that no other
+    /// session owns. Two such panes in one project can't be told apart, so neither is guessed.
+    func backgroundPane(_ payload: [String: Value], panes: [PaneInfo]) -> String? {
+        let transcript = payload["transcript_path"]?.string ?? ""
+        guard !transcript.contains("/.codex/") else { return nil }
+        let cwd = payload["cwd"]?.string ?? ""
+        let project = (transcript as NSString).deletingLastPathComponent.components(separatedBy: "/").last ?? ""
+        let owned = Set(agents.values.map(\.pane))
+        let found = panes.filter { p in
+            p.command == "claude" && !owned.contains(p.paneId)
+                && ((!cwd.isEmpty && Self.samePath(p.path, cwd)) || (!project.isEmpty && Self.projectDir(p.path) == project))
+        }
+        return found.count == 1 ? found[0].paneId : nil
+    }
+
+    static func samePath(_ a: String, _ b: String) -> Bool {
+        URL(fileURLWithPath: a).standardizedFileURL.path == URL(fileURLWithPath: b).standardizedFileURL.path
+    }
+
+    /// Claude Code's folder name for a project under ~/.claude/projects: every other character becomes "-".
+    static func projectDir(_ path: String) -> String {
+        String(path.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
     }
 
     /// Drop agents whose pane is gone or no longer runs an agent.

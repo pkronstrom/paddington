@@ -900,7 +900,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             let event = req["event"] as? String ?? ""
             let payload = (Value(any: req["payload"]).table) ?? [:]
             let pane = req["pane"] as? String
-            if agents.handle(event: event, payload: payload, pane: pane, now: now) { render() }
+            if agents.handle(event: event, payload: payload, pane: pane, panes: context.panes, now: now) { render() }
             return ["ok": true]
         case "statusline":
             let payload = Value(any: req["payload"]).table ?? [:]

@@ -329,6 +329,33 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
     }
 }
 
+@Suite struct BackgroundSessionTests {
+    /// Claude Code background sessions run their hooks outside tmux (no TMUX_PANE): the pane is the one Claude pane
+    /// in that project no other session owns.
+    @Test func paneFromTheProject() {
+        func pane(_ id: String, _ cmd: String, _ path: String) -> PaneInfo {
+            PaneInfo(session: "main", window: 1, windowName: "w", paneId: id, active: false, command: cmd, path: path)
+        }
+        let panes = [pane("%54", "claude", "/p/sous-chef"), pane("%7", "claude", "/p/sous-chef"),
+                     pane("%26", "codex", "/p/sous-chef"), pane("%12", "claude", "/p/smc.pad")]
+        let st = AgentStore()
+        st.handle(event: "SessionStart", payload: ["session_id": .string("fg")], pane: "%54", now: 0)
+        let ask: [String: Value] = ["session_id": .string("bg"), "tool_name": .string("AskUserQuestion"),
+                                    "cwd": .string("/p/sous-chef/"), "tool_use_id": .string("t1")]
+        st.handle(event: "PreToolUse", payload: ask, pane: "", panes: panes, now: 1)
+        #expect(st.agent(forPane: "%7")?.status == .needs_input && st.agent(forPane: "%54")?.status == .idle)
+        // from the transcript's folder name when the session's directory changed
+        let other: [String: Value] = ["session_id": .string("bg2"), "cwd": .string("/p/smc.pad/Sources"),
+                                      "transcript_path": .string("/u/.claude/projects/-p-smc-pad/bg2.jsonl")]
+        st.handle(event: "UserPromptSubmit", payload: other, pane: nil, panes: panes, now: 2)
+        #expect(st.agent(forPane: "%12")?.status == .working)
+        // two unowned Claude panes in one project: no guess
+        let st2 = AgentStore()
+        st2.handle(event: "PreToolUse", payload: ask, pane: nil, panes: panes, now: 1)
+        #expect(st2.agents.isEmpty)
+    }
+}
+
 @Suite struct ApprovalTests {
     /// Codex settles most permission requests itself (Guardian auto-review) without drawing a prompt: a request is
     /// only "approve?" once its prompt is on screen, and the next tool call ends it either way.
