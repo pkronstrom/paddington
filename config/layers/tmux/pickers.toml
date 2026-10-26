@@ -7,27 +7,27 @@ title = "New"
 [[new-session.items]]
 label = "Claude · split"
 [[new-session.items.run.seq]]
-tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude"]
+tmux = ["new-window", "-t", "{session}:", "-c", "{projects}", "claude"]
 [[new-session.items.run.seq]]
-tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{projects}"]
 [[new-session.items.run.seq]]
 tmux = ["select-pane", "-t", "{session}:", "-L"]
 
 [[new-session.items]]
 label = "Codex · split"
 [[new-session.items.run.seq]]
-tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "codex"]
+tmux = ["new-window", "-t", "{session}:", "-c", "{projects}", "codex"]
 [[new-session.items.run.seq]]
-tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{projects}"]
 [[new-session.items.run.seq]]
 tmux = ["select-pane", "-t", "{session}:", "-L"]
 
 [[new-session.items]]
 label = "Claude + Codex"
 [[new-session.items.run.seq]]
-tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude"]
+tmux = ["new-window", "-t", "{session}:", "-c", "{projects}", "claude"]
 [[new-session.items.run.seq]]
-tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own", "codex"]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{projects}", "codex"]
 [[new-session.items.run.seq]]
 tmux = ["select-pane", "-t", "{session}:", "-L"]
 
@@ -59,9 +59,9 @@ tmux = ["select-pane", "-t", "{session}:", "-L"]
 [[new-session.items]]
 label = "Continue last Claude"
 [[new-session.items.run.seq]]
-tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude --continue"]
+tmux = ["new-window", "-t", "{session}:", "-c", "{projects}", "claude --continue"]
 [[new-session.items.run.seq]]
-tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{projects}"]
 [[new-session.items.run.seq]]
 tmux = ["select-pane", "-t", "{session}:", "-L"]
 
@@ -72,7 +72,7 @@ run = { tmux = ["new-window", "-t", "{session}:", "-c", "{pane_path}"] }
 [project-claude]
 title  = "Claude in…"
 source = "dirs"
-path   = "~/Projects/own"
+path   = "{projects}"
 [[project-claude.run.seq]]
 tmux = ["new-window", "-t", "{session}:", "-c", "{item}", "claude"]
 [[project-claude.run.seq]]
@@ -83,7 +83,7 @@ tmux = ["select-pane", "-t", "{session}:", "-L"]
 [project-codex]
 title  = "Codex in…"
 source = "dirs"
-path   = "~/Projects/own"
+path   = "{projects}"
 [[project-codex.run.seq]]
 tmux = ["new-window", "-t", "{session}:", "-c", "{item}", "codex"]
 [[project-codex.run.seq]]

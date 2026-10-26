@@ -376,6 +376,7 @@ extension Layer {
 
 public struct Settings {
     public var device: String = "m-vave-smc-pad"
+    public var projectsDir: String = NSHomeDirectory()   // {projects}: where New starts agents, and the "… in" lists
     public var roles: [String: String] = [:]
     public var padBankB = "shift"          // what pad bank B means: "shift" (each layer's [shift]) or "default"
     public var colors: [String: String] = Settings.defaultColors
@@ -444,6 +445,7 @@ public struct Settings {
     public static func parse(_ t: [String: Value]) -> Settings {
         var s = Settings()
         if let d = t["device"]?.string { s.device = d }
+        if let p = t["projects_dir"]?.string { s.projectsDir = (p as NSString).expandingTildeInPath }
         for (k, v) in t["roles"]?.table ?? [:] { if let n = v.string, !n.isEmpty { s.roles[k] = n } }
         if let b = t["banks"]?.table?["pad_b"]?.string { s.padBankB = b }
         for (k, v) in t["colors"]?.table ?? [:] { if let n = v.string { s.colors[k] = n } }

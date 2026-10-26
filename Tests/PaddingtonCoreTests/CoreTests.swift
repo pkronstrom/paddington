@@ -829,8 +829,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let home = NSHomeDirectory()
         _ = e.handle(.down("pad15"), now: 0, ctx: ctx, snap: Snapshot())
         let tap = plans(e.handle(.up("pad15"), now: 0.1, ctx: ctx, snap: Snapshot()))
-        #expect(tap.first?.steps == [.tmux(["new-window", "-t", "main:", "-c", home + "/Projects/own", "claude"]),
-                                     .tmux(["split-window", "-h", "-t", "main:", "-c", home + "/Projects/own"]),
+        #expect(tap.first?.steps == [.tmux(["new-window", "-t", "main:", "-c", home, "claude"]),
+                                     .tmux(["split-window", "-h", "-t", "main:", "-c", home]),
                                      .tmux(["select-pane", "-t", "main:", "-L"])])
         // hold New: the New… list
         _ = e.handle(.down("pad15"), now: 1, ctx: ctx, snap: Snapshot())

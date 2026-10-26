@@ -52,12 +52,12 @@ knob8 = { label = "Layouts",    cw = { tmux = ["next-layout", "-t", "{session}:"
 label = "New"
 color = "new"
 sound = "new"
-desc  = "tap: new window in ~/Projects/own, Claude left | shell right · hold: the New… list (Codex, Claude + Codex, worktrees, projects, a shell here…)"
+desc  = "tap: new window in projects_dir (config.toml), Claude left | shell right · hold: the New… list (Codex, Claude + Codex, worktrees, projects, a shell here…)"
 hold  = { picker = "new-session" }
 [[pad15.seq]]
-tmux = ["new-window", "-t", "{session}:", "-c", "{home}/Projects/own", "claude"]
+tmux = ["new-window", "-t", "{session}:", "-c", "{projects}", "claude"]
 [[pad15.seq]]
-tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{home}/Projects/own"]
+tmux = ["split-window", "-h", "-t", "{session}:", "-c", "{projects}"]
 [[pad15.seq]]
 tmux = ["select-pane", "-t", "{session}:", "-L"]
 

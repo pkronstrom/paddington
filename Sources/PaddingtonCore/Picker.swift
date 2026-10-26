@@ -108,6 +108,7 @@ public struct PickerDef {
             list += Self.firefoxTopSites().filter { !hosts.contains(Self.host($0.value) ?? "") }
         case "dirs":
             let raw = (path ?? "~").replacingOccurrences(of: "{home}", with: NSHomeDirectory())
+                .replacingOccurrences(of: "{projects}", with: config.settings.projectsDir)
             let base = URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
             let subs = ((try? FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
                 .filter { !$0.lastPathComponent.hasPrefix(".") && ((try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false) }

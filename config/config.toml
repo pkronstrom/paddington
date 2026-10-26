@@ -1,6 +1,7 @@
 # Paddington settings. Reloads automatically when saved.
 
 device = "m-vave-smc-pad"          # file in devices/
+projects_dir = "~"                 # {projects}: where New opens Claude / Codex, and what the "Claude in…" lists show
 
 [roles]                            # optional: a control that acts as a held modifier
 # shift  = "<control>"             # hold for each layer's [shift] bindings (SMC-PAD: its SHIFT sends no MIDI)

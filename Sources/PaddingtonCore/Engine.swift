@@ -793,6 +793,7 @@ public final class Engine {
             case "session": return pane.map { .string($0.session) } ?? snap["session"]
             case "window": return pane.map { .number(Double($0.window)) } ?? snap["window"]
             case "home": return .string(NSHomeDirectory())
+            case "projects": return .string(self.config.settings.projectsDir)
             default: return self.extraVars[k] ?? snap[k]
             }
         }
