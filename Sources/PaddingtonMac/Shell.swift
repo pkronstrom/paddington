@@ -72,10 +72,11 @@ public enum Shell {
         let outPipe = Pipe(), errPipe = Pipe(), inPipe = Pipe()
         p.standardOutput = outPipe; p.standardError = errPipe; p.standardInput = inPipe
         var outData = Data(), errData = Data()
+        // readers start once it runs: if it can't, nothing would ever close the pipes they wait on
+        do { try p.run() } catch { return RunResult(status: 126, out: "", err: error.localizedDescription) }
         let group = DispatchGroup()
         group.enter(); DispatchQueue.global().async { outData = outPipe.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         group.enter(); DispatchQueue.global().async { errData = errPipe.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-        do { try p.run() } catch { return RunResult(status: 126, out: "", err: error.localizedDescription) }
         if let input { inPipe.fileHandleForWriting.write(Data(input.utf8)) }
         try? inPipe.fileHandleForWriting.close()
         let deadline = Date().addingTimeInterval(timeout)
