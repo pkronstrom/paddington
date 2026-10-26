@@ -17,7 +17,7 @@ pad9  = { label = "Compact", text = "/compact\n", color = "act", look = "context
 pad10 = { label = "Rewind",  text = "/rewind\n", then = "menu-nav", then_steps = 2, color = "act", desc = "/rewind — knob ↑↓, green ✓ selects (twice), red ✕ back" }
 pad12 = { color = "off" }                                    # free: dark and does nothing — put your own action here
 
-# ── row 4: Skills… · Prompts… · (New · Close) — bank B: /handoff · Mode
+# ── row 4: Skills… · Prompts… · (New · Close) — bank B: /context · Mode
 pad13 = { label = "Skills…", search = "skills", with = { rec = { search = "skills" } }, color = "skill", desc = "a searchable list: type (↵ takes it) or turn a knob (▶ takes it) · press while holding ● Talk: say the skill" }
 pad14 = { label = "Prompts…", search = "prompts", with = { rec = { search = "prompts" } }, color = "skill", desc = "a searchable list: type (↵ pastes it) or turn a knob (▶ pastes it) · press while holding ● Talk: say it" }
 
@@ -28,5 +28,5 @@ knob8 = { label = "Thinking", picker = "effort", color = "act" }
 [shift]
 pad9  = { label = "/clear",   text = "/clear\n", confirm = "ask", color = "danger" }
 pad10 = { label = "/resume",  text = "/resume\n", then = "menu-nav", color = "act" }
-pad13 = { label = "/handoff", text = "/handoff\n", color = "skill" }
+pad13 = { label = "/context", text = "/context\n", color = "skill" }
 pad14 = { label = "Mode",    mode = "next", look = "agent_mode", hold = { picker = "modes" }, desc = "tap: next mode · hold: pick a mode" }

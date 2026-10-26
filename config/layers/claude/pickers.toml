@@ -5,7 +5,7 @@ title  = "Skill"
 # active skills (~/.claude/skills, ~/.claude/commands), then the skill vault (◇ → /vault-skills <path>)
 # and the MCP vault (⧉ → /vault-mcp use <name>). Search it by voice: hold ● and press Skills… (or hold Skills…).
 source = ["claude-skills", "skill-vault", "mcp-vault"]
-pin    = ["rev", "work", "handoff", "pr", "simplify", "whats-next", "bb"]
+pin    = []                        # skills to list first, e.g. ["review", "simplify"]
 run    = { text = "/{item} " }     # trailing space: dictate arguments, then ▶
 
 [model]
