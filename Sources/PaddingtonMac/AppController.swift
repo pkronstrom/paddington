@@ -311,7 +311,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         if let e = engine { process(e.releaseAll()) }
         drums.stop()
         if ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == Self.agentLabel { exit(75) }   // launchd restarts us
-        _ = Shell.spawn(["/bin/sh", "-c", "sleep 1; /usr/bin/open '\(Bundle.main.bundlePath)'"])
+        _ = Shell.spawn(["/bin/sh", "-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath])   // the path as $0, never parsed by sh
         NSApp.terminate(nil)
     }
 

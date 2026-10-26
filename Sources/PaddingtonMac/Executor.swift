@@ -71,7 +71,8 @@ public final class Executor {
             case .tmuxText(let pane, let text):
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
                 for (i, line) in lines.enumerated() {
-                    if !line.isEmpty, !check(Tmux.run(["send-keys", "-t", pane, "-l", String(line)]), what: "send-keys") { return false }
+                    // "--": a line starting with "-" (a markdown bullet, "---") is text, not a tmux flag
+                    if !line.isEmpty, !check(Tmux.run(["send-keys", "-t", pane, "-l", "--", String(line)]), what: "send-keys") { return false }
                     if i < lines.count - 1 {
                         usleep(30_000)
                         if !check(Tmux.run(["send-keys", "-t", pane, "Enter"]), what: "send-keys") { return false }
