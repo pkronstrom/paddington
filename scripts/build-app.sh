@@ -102,35 +102,6 @@ ln -sf "$APP/Contents/MacOS/paddington" "$HOME/.local/bin/padctl"
 echo "installed: $APP"
 echo "cli:       $HOME/.local/bin/paddington (also: padctl)"
 
-# Paddington used to be called padctl (same bundle id, so permissions and settings carry over). Once: let the
-# old app quit, move its config folder (leaving a link at the old path), drop its socket folder and bundle, then
-# start the new app.
-OLD="$DEST/Padctl.app"
-if [[ -d "$OLD" ]]; then
-  if pgrep -f "$OLD/Contents/MacOS/padctl" >/dev/null 2>&1; then
-    # Its update check (every second) sees a changed executable and quits cleanly to relaunch; the stub that
-    # changed it is gone before that relaunch, so nothing starts again.
-    mv "$OLD" "$DEST/.Padctl.old.app"
-    mkdir -p "$OLD/Contents/MacOS" && : > "$OLD/Contents/MacOS/padctl"
-    for _ in $(seq 50); do pgrep -f "$OLD/Contents/MacOS/padctl" >/dev/null 2>&1 || break; sleep 0.1; done
-    rm -rf "$OLD"
-    if pgrep -f "$OLD/Contents/MacOS/padctl" >/dev/null 2>&1; then
-      mv "$DEST/.Padctl.old.app" "$OLD"
-      echo "Padctl (the old app) didn't quit: quit it from its menu, then run this script again." >&2
-      exit 1
-    fi
-    rm -rf "$DEST/.Padctl.old.app"
-  fi
-  if [[ -d "$HOME/.config/padctl" && ! -L "$HOME/.config/padctl" && ! -e "$HOME/.config/paddington" ]]; then
-    mv "$HOME/.config/padctl" "$HOME/.config/paddington"
-    ln -s "$HOME/.config/paddington" "$HOME/.config/padctl"
-    echo "config:    ~/.config/padctl → ~/.config/paddington (a link stays at the old path)"
-  fi
-  rm -rf "$HOME/Library/Application Support/padctl"
-  rm -rf "$OLD"
-  echo "removed:   $OLD"
-  /usr/bin/open "$APP"
-  echo "started:   $APP"
-elif pgrep -f "$APP/Contents/MacOS/paddington" >/dev/null 2>&1; then
+if pgrep -f "$APP/Contents/MacOS/paddington" >/dev/null 2>&1; then
   echo "the running app restarts itself with the new version"
 fi
