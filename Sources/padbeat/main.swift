@@ -18,6 +18,7 @@
 
 import AVFoundation
 import CoreMIDI
+import CTry
 import Foundation
 
 let mapPath = CommandLine.arguments.dropFirst().first
@@ -51,9 +52,15 @@ final class Kit {
     var hits = 0, misses = 0, lastNote: UInt8 = 0
     var startFailed = false
     var ackedGeneration = -1
+    var startedAt = Date.distantPast
+    var cyclesAtStart = 0
+    var voicesReady = false                           // every voice started, on an output that renders
+    var dropped = 0
 
     let peakLock = NSLock()
     var peak: Float = 0                               // loudest sample out of the mixer since the last report
+    var cycles = 0                                    // render cycles seen by the mixer tap: the output is alive
+    var renderCycles: Int { peakLock.lock(); defer { peakLock.unlock() }; return cycles }
 
     init() {
         for _ in 0..<16 {
@@ -66,7 +73,7 @@ final class Kit {
             guard let self, let ch = buf.floatChannelData else { return }
             var m: Float = 0
             for i in 0..<Int(buf.frameLength) { m = max(m, abs(ch[0][i])) }
-            self.peakLock.lock(); self.peak = max(self.peak, m); self.peakLock.unlock()
+            self.peakLock.lock(); self.peak = max(self.peak, m); self.cycles &+= 1; self.peakLock.unlock()
         }
         engine.prepare()
         // output device changed (headphones, AirPods, a virtual device): the engine stops; supervise() restarts it
@@ -76,17 +83,46 @@ final class Kit {
         }
     }
 
-    /// On `queue`: the engine runs exactly when there is something to play, and every voice is ready.
+    /// AVFoundation raises Objective-C exceptions — "player did not see an IO cycle" from play() while the output
+    /// device isn't rendering yet (just after the Mac wakes, during a device switch) — which abort the process when
+    /// nothing catches them. Here they're caught and logged; false = it failed.
+    @discardableResult
+    func guarded(_ what: String, _ block: () -> Void) -> Bool {
+        guard let e = CTryCatch(block) else { return true }
+        log("\(what) failed: \(e.reason ?? e.name.rawValue) (device \(outputDevice))")
+        return false
+    }
+
+    func stopEngine() {
+        for v in voices { guarded("voice stop") { v.stop() } }
+        engine.stop()
+        voicesReady = false
+    }
+
+    /// On `queue`: the engine runs exactly when there is something to play, and every voice is ready. Voices start
+    /// only once the output has rendered a cycle (play() before that raises); an output that renders nothing for
+    /// 3 s is given up on and started again.
     func supervise() {
         if map.notes.isEmpty {
-            if engine.isRunning { voices.forEach { $0.stop() }; engine.stop() }
+            if engine.isRunning { stopEngine() }
             return
         }
         if !engine.isRunning {
-            do { try engine.start(); startFailed = false }
+            cyclesAtStart = renderCycles
+            do { try engine.start(); startFailed = false; startedAt = Date(); voicesReady = false }
             catch { if !startFailed { log("audio start failed: \(error) — retrying") }; startFailed = true; return }
         }
-        for v in voices where !v.isPlaying { v.play() }
+        if !voicesReady {
+            guard renderCycles > cyclesAtStart else {
+                if Date().timeIntervalSince(startedAt) > 3 { log("no audio from \(outputDevice) for 3 s — starting the engine again"); stopEngine() }
+                return
+            }
+            for v in voices where !v.isPlaying {
+                guard guarded("voice start", { v.play() }) else { stopEngine(); return }
+            }
+            voicesReady = true
+            log("audio running: \(outputDevice)")
+        }
         if ackedGeneration != map.generation { ack() }
     }
 
@@ -103,8 +139,12 @@ final class Kit {
         lastNote = note
         guard let h = map.notes[note] else { misses += 1; return }
         hits += 1
-        if !engine.isRunning { supervise() }
-        guard engine.isRunning else { return }
+        if !engine.isRunning || !voicesReady { supervise() }
+        guard engine.isRunning, voicesReady else {
+            dropped += 1
+            if dropped == 1 || dropped % 50 == 0 { log("hit \(note) dropped: audio not running yet (\(outputDevice))") }
+            return
+        }
         let i = next, v = voices[i]
         next = (next + 1) % voices.count
         voiceToken[i] += 1; voiceNote[i] = note
@@ -112,8 +152,9 @@ final class Kit {
         let level = h.gain * (map.floor + (1 - map.floor) * powf(min(1, Float(velocity) / map.full), map.curve))
         // the loudness is baked into a copy of the sample: a player's volume only changes on the next render
         // cycle, after a drum's attack has already played at the voice's previous volume
-        v.scheduleBuffer(scaled(h.buffer, by: level) ?? h.buffer, at: nil, options: .interrupts)
-        if !v.isPlaying { v.play() }
+        let buf = scaled(h.buffer, by: level) ?? h.buffer
+        guard guarded("schedule", { v.scheduleBuffer(buf, at: nil, options: .interrupts) }) else { stopEngine(); return }
+        if !v.isPlaying, !guarded("voice play", { v.play() }) { stopEngine() }
     }
 
     /// On `queue`. A note-off: a gate note's voices fade out over ~36 ms (stopping dead would click).
@@ -126,7 +167,8 @@ final class Kit {
             for s in 1...steps {
                 queue.asyncAfter(deadline: .now() + 0.006 * Double(s)) { [weak self] in
                     guard let self, self.voiceToken[i] == token else { return }
-                    if s < steps { v.volume = Float(steps - s) / Float(steps) } else { v.stop(); v.volume = 1; v.play() }
+                    if s < steps { v.volume = Float(steps - s) / Float(steps) }
+                    else if self.engine.isRunning { self.guarded("voice restart") { v.stop(); v.volume = 1; v.play() } }
                 }
             }
         }
@@ -211,8 +253,8 @@ final class Kit {
     func report() -> String {
         peakLock.lock(); let p = peak; peak = 0; peakLock.unlock()
         let playing = voices.filter(\.isPlaying).count
-        return "engine=\(engine.isRunning ? "running" : "stopped") voices-playing=\(playing)/\(voices.count) peak=\(String(format: "%.3f", p)) " +
-            "notes=\(map.notes.keys.sorted()) generation=\(map.generation) acked=\(ackedGeneration) hits=\(hits) other-notes=\(misses) " +
+        return "engine=\(engine.isRunning ? "running" : "stopped") voices-playing=\(playing)/\(voices.count) ready=\(voicesReady) cycles=\(renderCycles) peak=\(String(format: "%.3f", p)) " +
+            "notes=\(map.notes.keys.sorted()) generation=\(map.generation) acked=\(ackedGeneration) hits=\(hits) dropped=\(dropped) other-notes=\(misses) " +
             "last-note=\(lastNote) device=\(outputDevice)"
     }
 }

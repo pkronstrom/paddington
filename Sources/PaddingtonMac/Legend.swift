@@ -255,7 +255,7 @@ struct PickerList: View {
                 PickerRow(label: p.items[i].label, on: i == p.index,
                           next: p.searching && p.index < 0 && i == 0)      // what ▶ takes from the search row
             }
-            Text(p.searching ? "say or type · turn to browse · ▶ take · ⏸ cancel" : "turn · ▶ choose · ⏸ cancel")
+            Text(p.searching ? "type or say it · ↑↓ or turn · ↵ / ▶ take · esc / ⏸ cancel" : "turn · ▶ choose · ⏸ cancel")
                 .font(.system(size: 9 * k)).foregroundStyle(.white.opacity(0.5))
         }
         .padding(7 * k)
@@ -407,6 +407,7 @@ public final class PickerModel: ObservableObject {
     public var onType: ((String, Int) -> Void)?
     public var onSubmit: (() -> Void)?
     public var onCancel: (() -> Void)?
+    public var onMove: ((Int) -> Void)?      // ↑ / ↓ in the search row: like a knob step
     public init() {}
 
     func edited(_ t: String) {
@@ -450,6 +451,8 @@ struct SearchRow: View {
                 .focused($focused)
                 .onSubmit { m.onSubmit?() }
                 .onExitCommand { m.onCancel?() }
+                .onKeyPress(.upArrow) { m.onMove?(-1); return .handled }
+                .onKeyPress(.downArrow) { m.onMove?(1); return .handled }
         }
         .padding(.horizontal, 5 * k).padding(.vertical, 3 * k)
         .frame(width: 190 * k, alignment: .leading)
@@ -534,9 +537,10 @@ public final class LegendController {
     }
 
     /// Search lists: the overlay's search row takes typing (and dictation) until `endSearch`.
-    public func beginSearch(onType: @escaping (String, Int) -> Void, onSubmit: @escaping () -> Void, onCancel: @escaping () -> Void) {
+    public func beginSearch(onType: @escaping (String, Int) -> Void, onSubmit: @escaping () -> Void, onCancel: @escaping () -> Void,
+                            onMove: ((Int) -> Void)? = nil) {
         let m = pickerModel
-        m.onType = onType; m.onSubmit = onSubmit; m.onCancel = onCancel
+        m.onType = onType; m.onSubmit = onSubmit; m.onCancel = onCancel; m.onMove = onMove
         m.lastTyped = ""; m.dictated = false; m.typed = ""
         guard !headless else { return }
         pickerPanel.acceptsKeys = true
@@ -557,7 +561,7 @@ public final class LegendController {
 
     public func endSearch() {
         let m = pickerModel
-        m.onType = nil; m.onSubmit = nil; m.onCancel = nil
+        m.onType = nil; m.onSubmit = nil; m.onCancel = nil; m.onMove = nil
         pickerPanel.acceptsKeys = false
         if pickerPanel.isKeyWindow { pickerPanel.resignKey() }
     }

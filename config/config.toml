@@ -60,8 +60,9 @@ low_tom  = "sounds/tr707/LowTom.wav@4"
 high_tom = "sounds/tr707/HiTom.wav@4"
 cowbell  = "sounds/tr707/CowBell.wav@4"
 # Mini-sampler: hold a drum pad and, once it turns red, it records from the microphone until you let go; from
-# then on that pad plays your sound (trimmed and levelled). While you hold a pad with a sample:
-#   ● (held) records it again until you let go of ●  ·  ⏸ erases it (its drum comes back)
+# then on that pad plays your sound (trimmed and levelled). Let go right after it turns red and it keeps
+# recording until you tap the pad (or ●) again. While you hold a pad with a sample:
+#   ● records it again (hold ● while you speak, or tap ● to start and tap again to stop)  ·  ⏸ erases it
 # — then ● doesn't talk and ⏸ doesn't send Esc. A take without a sound keeps what the pad had. The menu has
 # "Erase pad sample ›" (one pad, or all). Files: ~/Library/Application Support/paddington/samples
 sample_hold = 0.8                  # seconds holding a drum pad before it records

@@ -17,7 +17,8 @@ let package = Package(
         .executableTarget(name: "paddington", dependencies: ["PaddingtonCore", "PaddingtonMac"],
                           swiftSettings: [.swiftLanguageMode(.v5)]),
         // padbeat: a minimal stand-alone MIDI → sample player (no paddington code); paddington only writes its note map
-        .executableTarget(name: "padbeat", swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "CTry"),      // catches AVFoundation's Objective-C exceptions, which Swift can't
+        .executableTarget(name: "padbeat", dependencies: ["CTry"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "PaddingtonCoreTests", dependencies: ["PaddingtonCore"],
                     swiftSettings: [.swiftLanguageMode(.v5)]),
     ]

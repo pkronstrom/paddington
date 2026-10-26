@@ -16,6 +16,9 @@ public final class DrumSidecar {
     var lastContent: Data?          // the map content last written successfully (without the generation)
     var generation = Int(Date().timeIntervalSince1970) % 1_000_000 * 100
     var lastStart = Date.distantPast
+    var retryAt = Date.distantPast  // a padbeat that keeps dying soon after it starts is restarted less and less often
+    var quickExits = 0
+    var stopping = false
     public private(set) var notes: Set<Int> = []
     public init() {}
 
@@ -63,9 +66,21 @@ public final class DrumSidecar {
     }
 
     func ensureRunning() {
-        guard !running, Date().timeIntervalSince(lastStart) > 5, let bin = Self.binary else { return }
+        guard !running, Date() >= retryAt, Date().timeIntervalSince(lastStart) > 5, let bin = Self.binary else { return }
         lastStart = Date()
+        stopping = false
         let p = Process()
+        p.terminationHandler = { [weak self] p in
+            DispatchQueue.main.async {
+                guard let self, !self.stopping else { return }
+                let ran = Date().timeIntervalSince(self.lastStart)
+                self.quickExits = ran < 15 ? self.quickExits + 1 : 0
+                let wait = min(60.0, 5 * pow(2.0, Double(self.quickExits)))
+                self.retryAt = Date().addingTimeInterval(wait)
+                Log.write("padbeat exited after \(Int(ran)) s (status \(p.terminationStatus))" +
+                          (self.quickExits > 0 ? " — \(self.quickExits) quick exit(s), next start in \(Int(wait)) s" : ""))
+            }
+        }
         p.executableURL = URL(fileURLWithPath: bin)
         p.arguments = [Self.mapPath]
         p.standardOutput = FileHandle.nullDevice
@@ -80,7 +95,7 @@ public final class DrumSidecar {
         catch { Log.write("padbeat: \(error.localizedDescription)") }
     }
 
-    public func stop() { process?.terminate(); process = nil }
+    public func stop() { stopping = true; process?.terminate(); process = nil }
 
     /// Ask padbeat to log its state (audio engine, voices, output peak and device, mapped notes, hits).
     public func report() { if let p = process, p.isRunning { kill(p.processIdentifier, SIGUSR1) } }

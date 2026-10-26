@@ -30,7 +30,7 @@ pad11 = { label = "ChatGPT", keys = "alt+space", color = "skill", hold = { keys 
 pad12 = { label = "Claude",  keys = "alt alt", color = "skill", desc = "Claude quick entry (double-tap ⌥ — change to match Claude › Settings › Quick entry)" }
 
 # ── row 4: search, then New tab · Close tab ───────────────────
-pad14 = { label = "Sites…", picker = "sites", hold = { search = "sites" }, with = { rec = { search = "sites" } }, color = "skill", desc = "tap: ChatGPT, Claude, GitHub… and your most visited sites — ▶ opens one in a new tab · hold, or press while holding ● Talk: search — type or say it" }
+pad14 = { label = "Sites…", search = "sites", with = { rec = { search = "sites" } }, color = "skill", desc = "tap: ChatGPT, Claude, GitHub… and your most visited sites — ▶ (or ↵) opens one in a new tab · type to search · press while holding ● Talk: say it" }
 pad15 = { label = "New tab",     keys = "cmd+t", color = "new" }
 pad16 = { label = "Close tab",   keys = "cmd+w", color = "danger", hold = { keys = "cmd+q" }, hold_time = "2s", desc = "tap: close tab · hold 2 s: quit the browser" }
 

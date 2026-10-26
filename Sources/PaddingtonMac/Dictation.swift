@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import Foundation
 import SQLite3
 
@@ -40,6 +41,26 @@ public final class DictationWatcher {
     }
 
     private func deliver(_ s: String) { onText?(s) }
+
+    /// Is VoiceInk recording right now — capturing from a microphone? Asked of Core Audio, so it's VoiceInk's real
+    /// state, whatever its tap / hold rules made of the last ● press. nil: can't tell (VoiceInk isn't running).
+    public static func voiceInkRecording() -> Bool? {
+        guard #available(macOS 14.2, *),
+              var pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.prakashjoshipax.VoiceInk").first?.processIdentifier
+        else { return nil }
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
+                                              mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var process = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &addr, UInt32(MemoryLayout<pid_t>.size), &pid, &size, &process) == noErr else { return nil }
+        guard process != kAudioObjectUnknown else { return false }          // no audio at all yet
+        addr.mSelector = kAudioProcessPropertyIsRunningInput
+        var running: UInt32 = 0
+        size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(process, &addr, 0, nil, &size, &running) == noErr else { return nil }
+        return running != 0
+    }
 
     /// VoiceInk's recorder panel is on screen (it shows while recording and transcribing).
     public static func recorderVisible() -> Bool {

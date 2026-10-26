@@ -8,6 +8,7 @@ public struct PaneInfo: Equatable {
     public var active: Bool          // active pane of the active window of its session
     public var command: String
     public var path: String
+    public var zoomed = false        // its window is zoomed (to its active pane): the other panes aren't on screen
     public init(session: String, window: Int, windowName: String, paneId: String, active: Bool, command: String, path: String) {
         self.session = session; self.window = window; self.windowName = windowName; self.paneId = paneId
         self.active = active; self.command = command; self.path = path
@@ -171,6 +172,14 @@ public final class AgentStore {
             agents[sid]?.contextPct = pct
         }
         return before.0 != agents || before.1 != usage5h || before.2 != usage7d
+    }
+
+    /// What's on screen counts as seen: every pane of the focused pane's window — only the focused one while the
+    /// window is zoomed to it.
+    @discardableResult
+    public func visit(focused p: PaneInfo, panes: [PaneInfo], now: Double) -> Bool {
+        let shown = p.zoomed ? [p] : panes.filter { $0.session == p.session && $0.window == p.window }
+        return shown.reduce(false) { visit(pane: $1.paneId, now: now) || $0 }
     }
 
     /// The user is looking at this pane: finished work counts as seen.

@@ -18,8 +18,8 @@ pad10 = { label = "Rewind",  text = "/rewind\n", then = "menu-nav", then_steps =
 pad12 = { color = "off" }                                    # free: dark and does nothing — put your own action here
 
 # ── row 4: Skills… · Prompts… · (New · Close) — bank B: /handoff · Mode
-pad13 = { label = "Skills…", picker = "skills", hold = { search = "skills" }, with = { rec = { search = "skills" } }, color = "skill", desc = "tap: list (knob chooses) · hold, or press while holding ● Talk: search by voice — say the skill, release ●, it's typed in" }
-pad14 = { label = "Prompts…", picker = "prompts", hold = { search = "prompts" }, with = { rec = { search = "prompts" } }, color = "skill", desc = "tap: list · hold, or press while holding ● Talk: search — type or say it, ▶ / Enter pastes it" }
+pad13 = { label = "Skills…", search = "skills", with = { rec = { search = "skills" } }, color = "skill", desc = "a searchable list: type (↵ takes it) or turn a knob (▶ takes it) · press while holding ● Talk: say the skill" }
+pad14 = { label = "Prompts…", search = "prompts", with = { rec = { search = "prompts" } }, color = "skill", desc = "a searchable list: type (↵ pastes it) or turn a knob (▶ pastes it) · press while holding ● Talk: say it" }
 
 # ── knobs 7–8: settings ───────────────────────────────────────
 knob7 = { label = "Model",    picker = "model", color = "act" }

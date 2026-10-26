@@ -3,7 +3,7 @@
 [sites]
 title  = "Sites"
 # Pinned sites first, then the ones you visit most in Firefox (read from its history, read-only).
-# Tap Sites…: turn a knob, ▶ opens it in a new tab · hold (or press while holding ● Talk): search — type or say it.
+# Tap Sites…: type to search (↵ opens it) or turn a knob (▶ opens it in a new tab) · press while holding ● Talk: say it.
 source = "firefox-top"
 run    = { seq = [ { keys = "cmd+t" }, { wait = 0.25 }, { text = "{item}\n" } ] }
 

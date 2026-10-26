@@ -48,7 +48,8 @@ public enum EngineOutput: Equatable {
 
 public enum SamplerCommand: Equatable {
     case record(String)             // start recording for this pad ("A.pad3")
-    case stop(String)               // the pad (or ●) was let go: keep what was recorded
+    case latched(String)            // the trigger was let go right away: it keeps recording until the pad or ● is tapped
+    case stop(String)               // the recording ends: keep what was recorded
     case erase(String)              // the pad's sample goes (its drum comes back)
 }
 
@@ -205,9 +206,13 @@ public final class Engine {
     }
     /// Samples recorded on pads: "A.pad3" (bank, pad) → sound (a file path, "@gain").
     public var samples: [String: String] = [:]
-    /// The pad recording a sample (its key), and the control whose release ends it (the pad, or ●).
+    /// The pad recording a sample (its key), when it began, and the control whose release ends it (the pad, or ●) —
+    /// nil once the recording is latched (the trigger was let go within `latchWindow` of the start: a hold just past
+    /// the threshold, a tap on ●): then a tap on the pad, ● or ⏸ ends it.
     public private(set) var recording: String?
     var recordTrigger: String?
+    var recordStarted = 0.0
+    static let latchWindow = 0.5
     private var presses: [String: Press] = [:]
     private var heldKeys: [String: (chord: KeyChord, since: Double)] = [:]
     private var lastBaseId: String?
@@ -511,7 +516,7 @@ public final class Engine {
         for (c, p) in presses where p.drum != nil && c != recordTrigger && now - p.down > 20 { presses[c] = nil }
         for (c, p) in presses where recording == nil && !p.sample && !p.chorded {
             guard let key = p.drum, now - p.down >= config.settings.sampleHold else { continue }
-            recording = key; recordTrigger = c
+            recording = key; recordTrigger = c; recordStarted = now
             out += [.sampler(.record(key)), .redraw]
         }
         for (c, p) in presses where !p.fired && p.role == nil {
@@ -561,26 +566,38 @@ public final class Engine {
         recording = nil; recordTrigger = nil
     }
 
+    /// "A.pad3" → "pad3"
+    static func pad(of key: String) -> String { key.split(separator: ".").last.map(String.init) ?? key }
+
     /// The drum pad held down (its press), if any.
     var heldDrum: Press? { presses.values.filter { $0.drum != nil }.min { $0.down < $1.down } }
 
     /// While a drum pad is held, ● records a sound for it (until ● is let go) and ⏸ erases its sample — instead of
-    /// Talk and Esc. A recording ends when the control that started it (the pad, or ●) is let go.
+    /// Talk and Esc. A recording ends when the control that started it (the pad, or ●) is let go — unless that was
+    /// right away: then it's latched, and the next tap on the pad, ● or ⏸ ends it.
     func samplerInput(_ e: ControlEvent, now: Double) -> [EngineOutput]? {
         switch e {
+        case .down(let c) where recording != nil && recordTrigger == nil
+                                && (c == "rec" || c == "pause" || c == Self.pad(of: recording ?? "")):
+            presses[c] = Press(binding: nil, layer: nil, down: now, fired: true, role: nil)   // its release does nothing
+            let key = recording
+            recording = nil
+            return key.map { [.sampler(.stop($0)), .redraw] } ?? [.redraw]
         case .down(let c) where c == "rec" || c == "pause":
             guard let (pad, p) = presses.first(where: { $0.value.drum != nil }), let key = p.drum else { return nil }
             presses[pad]?.chorded = true
             presses[c] = Press(binding: nil, layer: nil, down: now, fired: true, role: nil)
             if c == "pause" { return [.sampler(.erase(key)), .redraw] }
             guard recording == nil else { return [] }
-            recording = key; recordTrigger = c
+            recording = key; recordTrigger = c; recordStarted = now
             return [.sampler(.record(key)), .redraw]
         case .up(let c) where c == recordTrigger:
             presses[c] = nil
-            let key = recording
-            recording = nil; recordTrigger = nil
-            return key.map { [.sampler(.stop($0)), .redraw] } ?? [.redraw]
+            recordTrigger = nil
+            guard let key = recording else { return [.redraw] }
+            if now - recordStarted < Self.latchWindow { return [.sampler(.latched(key)), .redraw] }
+            recording = nil
+            return [.sampler(.stop(key)), .redraw]
         default:
             return nil
         }
@@ -936,6 +953,12 @@ public final class Engine {
     // MARK: appearance
 
     public func appearance(_ control: String, ctx: Context, snap: Snapshot) -> Appearance {
+        if let key = recording, recordTrigger == nil, control == "rec" || control == "pause" {
+            var a = Appearance(label: "■ Stop", color: config.settings.color("danger"), blink: false, bound: true,
+                               detail: "stop recording \(Self.pad(of: key))")
+            a.key = "danger"; a.selected = true
+            return a
+        }
         if let p = heldDrum, control == "rec" || (control == "pause" && p.sample) {
             let rec = control == "rec"
             var a = Appearance(label: rec ? (recording == nil ? "● Record" : "● Recording") : "Erase sample",

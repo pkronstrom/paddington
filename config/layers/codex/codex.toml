@@ -17,7 +17,7 @@ pad12 = { color = "off" }                                    # free: dark and do
 
 # ── row 4: Commands… · Prompts… · (New · Close) — bank B: /mention · Approvals
 pad13 = { label = "Commands…",  picker = "codex-commands", color = "skill" }
-pad14 = { label = "Prompts…", picker = "prompts", hold = { search = "prompts" }, with = { rec = { search = "prompts" } }, color = "skill", desc = "tap: list · hold, or press while holding ● Talk: search — type or say it, ▶ / Enter pastes it" }
+pad14 = { label = "Prompts…", search = "prompts", with = { rec = { search = "prompts" } }, color = "skill", desc = "a searchable list: type (↵ pastes it) or turn a knob (▶ pastes it) · press while holding ● Talk: say it" }
 
 # ── knobs 7–8: settings (Codex's own /model menu) ─────────────
 knob7 = { label = "Model",     text = "/model\n", then = "menu-nav", then_steps = 2, color = "act", desc = "opens /model — keep turning to move, any pad selects" }

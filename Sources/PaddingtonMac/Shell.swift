@@ -129,7 +129,7 @@ public enum Tmux {
 
     /// Throws when tmux itself fails (as opposed to "no server running", which is simply no panes).
     public static func panesOrError() throws -> [PaneInfo] {
-        let fmt = "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_active}\t#{window_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_start_command}"
+        let fmt = "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_active}\t#{window_active}\t#{pane_current_command}\t#{pane_current_path}\t#{window_zoomed_flag}\t#{pane_start_command}"
         let r = run(["list-panes", "-a", "-F", fmt])
         guard r.ok else {
             let err = r.err.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -142,8 +142,10 @@ public enum Tmux {
         let panes = lines.compactMap { line -> PaneInfo? in
             let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard f.count >= 8, let w = Int(f[1]) else { return nil }
-            return PaneInfo(session: f[0], window: w, windowName: f[2], paneId: f[3], active: f[4] == "1" && f[5] == "1",
-                            command: agentCommand(current: f[6], start: f.count > 8 ? f[8] : ""), path: f[7])
+            var p = PaneInfo(session: f[0], window: w, windowName: f[2], paneId: f[3], active: f[4] == "1" && f[5] == "1",
+                             command: agentCommand(current: f[6], start: f.count > 9 ? f[9...].joined(separator: "\t") : ""), path: f[7])
+            p.zoomed = f.count > 8 && f[8] == "1"
+            return p
         }
         if panes.isEmpty && !lines.isEmpty { throw KeyError("tmux output not understood (locale?): \(lines[0].prefix(80))") }
         return panes

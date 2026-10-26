@@ -167,6 +167,26 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         snap = Snapshot.build(context: ctx, agents: store, custom: [:], layerPath: "")
         #expect(e.appearance("pad2", ctx: ctx, snap: snap).blink == false)
     }
+
+    /// Looking at a window counts for every pane in it (an agent in the pane next to the focused shell is on
+    /// screen too), but not while the window is zoomed to another pane.
+    @Test func visitingAWindowSeesAllItsPanes() {
+        func pane(_ id: String, _ w: Int, _ cmd: String) -> PaneInfo {
+            PaneInfo(session: "main", window: w, windowName: "w\(w)", paneId: id, active: id == "%1", command: cmd, path: "/tmp")
+        }
+        var shell = pane("%1", 1, "fish")
+        let panes = [shell, pane("%2", 1, "claude"), pane("%3", 2, "codex")]
+        let st = AgentStore()
+        for (sid, p) in [("a", "%2"), ("b", "%3")] {
+            st.handle(event: "SessionStart", payload: ["session_id": .string(sid)], pane: p, now: 0)
+            st.handle(event: "Stop", payload: ["session_id": .string(sid)], pane: p, now: 1)
+        }
+        shell.zoomed = true
+        #expect(!st.visit(focused: shell, panes: panes, now: 2))                   // zoomed to the shell: %2 unseen
+        shell.zoomed = false
+        #expect(st.visit(focused: shell, panes: panes, now: 3))
+        #expect(st.agent(forPane: "%2")?.status == .idle && st.agent(forPane: "%3")?.status == .done_unread)
+    }
 }
 
 @Suite struct WindowStatusTests {
@@ -489,6 +509,35 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         _ = e.handle(.down("pad1"), now: 7, ctx: ctx, snap: snap)
         #expect(!e.tick(now: 8, ctx: ctx, snap: snap).contains { if case .sampler = $0 { return true }; return false })
         _ = e.handle(.up("pad1"), now: 8.1, ctx: ctx, snap: snap)
+    }
+
+    /// Letting go right after the recording starts (a hold just past the threshold, a tap on ●) doesn't end it: it
+    /// keeps recording until the pad, ● or ⏸ is tapped — and that tap does nothing else.
+    @Test func aQuickReleaseLatchesTheRecording() throws {
+        let e = Engine(config: try loadConfig())
+        let ctx = itermContext()
+        let snap = Snapshot(values: ["win.1.exists": .bool(true)])
+        _ = e.handle(.down("pad4"), now: 0, ctx: ctx, snap: snap)
+        #expect(e.tick(now: 0.85, ctx: ctx, snap: snap).contains(.sampler(.record("A.pad4"))))
+        #expect(e.handle(.up("pad4"), now: 0.95, ctx: ctx, snap: snap) == [.sampler(.latched("A.pad4")), .redraw])
+        #expect(e.recording == "A.pad4" && e.tick(now: 2, ctx: ctx, snap: snap).isEmpty)
+        #expect(e.appearance("rec", ctx: ctx, snap: snap).label == "■ Stop")
+        #expect(e.appearance("pad4", ctx: ctx, snap: snap).label == "● Rec")
+        #expect(e.handle(.down("pad4"), now: 3, ctx: ctx, snap: snap) == [.sampler(.stop("A.pad4")), .redraw])   // no drum hit
+        #expect(e.handle(.up("pad4"), now: 3.1, ctx: ctx, snap: snap).isEmpty && e.recording == nil)
+        // a tap on ● while holding a sample pad: the same, and the next ● tap stops it without talking
+        e.samples = ["A.pad3": "/tmp/A.pad3.1.wav@4"]
+        _ = e.handle(.down("pad3"), now: 4, ctx: ctx, snap: snap)
+        _ = e.handle(.down("rec"), now: 4.3, ctx: ctx, snap: snap)
+        #expect(e.handle(.up("rec"), now: 4.5, ctx: ctx, snap: snap) == [.sampler(.latched("A.pad3")), .redraw])
+        _ = e.handle(.up("pad3"), now: 4.6, ctx: ctx, snap: snap)
+        #expect(e.recording == "A.pad3")
+        #expect(e.handle(.down("rec"), now: 6, ctx: ctx, snap: snap) == [.sampler(.stop("A.pad3")), .redraw])
+        #expect(e.handle(.up("rec"), now: 6.2, ctx: ctx, snap: snap).isEmpty)
+        // a longer hold still ends on release
+        _ = e.handle(.down("pad4"), now: 7, ctx: ctx, snap: snap)
+        _ = e.tick(now: 7.9, ctx: ctx, snap: snap)
+        #expect(e.handle(.up("pad4"), now: 9, ctx: ctx, snap: snap) == [.sampler(.stop("A.pad4")), .redraw])
     }
 
     /// Hold a sample pad: ● records again (until ● is let go, not the pad), ⏸ erases it — neither talks nor sends
@@ -851,9 +900,10 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         let ctx = itermContext()
         #expect(e.appearance("pad14", ctx: ctx, snap: Snapshot()).label == "Prompts…")
         _ = e.handle(.down("pad14"), now: 0.1, ctx: ctx, snap: Snapshot())
-        _ = e.handle(.up("pad14"), now: 0.15, ctx: ctx, snap: Snapshot())      // a tap (hold = search)
+        _ = e.handle(.up("pad14"), now: 0.15, ctx: ctx, snap: Snapshot())      // opens as a search: the search row first
+        #expect(e.picker?.searching == true && e.picker?.index == -1)
         let i = e.picker?.items.firstIndex { $0.label == "Review diff" } ?? 0
-        for _ in 0..<(i - 1) { _ = e.handle(.turn("knob1", 1), now: 0.16, ctx: ctx, snap: Snapshot()) }
+        for _ in 0...i { _ = e.handle(.turn("knob1", 1), now: 0.16, ctx: ctx, snap: Snapshot()) }
         #expect(e.picker.map { $0.items[$0.index].label } == "Review diff")
         let p = plans(e.handle(.down("play"), now: 0.2, ctx: ctx, snap: Snapshot()))
         #expect(p.first?.steps == [.tmuxText(pane: "%2", "Review the uncommitted diff in /tmp/w2. List bugs first, then risks. Don't edit files.")])
@@ -954,16 +1004,21 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(e.handle(.down("pad6"), now: 1, ctx: ctx, snap: snap).contains(.dictate))
     }
 
-    /// ● in an open list turns it into a search (and still starts dictation): what you say filters the list.
+    /// Sites… opens as a search (type or say it); ● there still starts dictation, and what you say filters it.
+    /// ● in a plain list (Model) turns it into a search first.
     @Test func talkInAListSearchesIt() throws {
         let e = Engine(config: try loadConfig())
-        var ctx = Context(); ctx.app = "org.mozilla.firefox"
-        _ = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())          // Sites…
-        _ = e.handle(.up("pad14"), now: 0.1, ctx: ctx, snap: Snapshot())
-        #expect(e.picker?.searching == false)
         let rc = try KeyChord.parse("rightcmd")
+        let model = Engine(config: try loadConfig())
+        _ = model.handle(.turn("knob7", 1), now: 0, ctx: itermContext(), snap: Snapshot())
+        #expect(model.picker?.id == "model" && model.picker?.searching == false)
+        let toSearch = model.handle(.down("rec"), now: 0.5, ctx: itermContext(), snap: Snapshot())
+        #expect(toSearch.contains(.search) && model.picker?.searching == true)
+        var ctx = Context(); ctx.app = "org.mozilla.firefox"
+        let opened = e.handle(.down("pad14"), now: 0, ctx: ctx, snap: Snapshot())   // Sites…
+        _ = e.handle(.up("pad14"), now: 0.1, ctx: ctx, snap: Snapshot())
+        #expect(opened.contains(.search) && e.picker?.searching == true)
         let out = e.handle(.down("rec"), now: 1, ctx: ctx, snap: Snapshot())
-        #expect(out.contains(.search) && e.picker?.searching == true)
         #expect(plans(out).contains { $0.steps == [.keyDown(rc)] })   // VoiceInk still starts
         #expect(e.picker?.all.contains { $0.value == Engine.pickerCancel } == false)
         _ = e.filterPicker("chat gpt", now: 2)
@@ -1206,7 +1261,7 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         // Sites…: pinned sites first; ▶ opens the highlighted one in a new tab
         _ = e.handle(.down("pad14"), now: 0.5, ctx: ctx, snap: Snapshot())
         _ = e.handle(.up("pad14"), now: 0.6, ctx: ctx, snap: Snapshot())
-        #expect(e.picker?.id == "sites" && e.picker?.items[1].label == "ChatGPT")
+        #expect(e.picker?.id == "sites" && e.picker?.items.first?.label == "ChatGPT")      // ▶ takes the top one
         #expect(plans(e.handle(.down("play"), now: 0.7, ctx: ctx, snap: Snapshot())).first?.steps
                 == [.keys([try KeyChord.parse("cmd+t")]), .wait(0.25), .typeText("https://chatgpt.com/\n")])
         _ = e.handle(.up("play"), now: 0.75, ctx: ctx, snap: Snapshot())
@@ -1255,8 +1310,8 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(plans(e.handle(.up("play"), now: 3.1, ctx: ctx, snap: Snapshot())).first?.sound == nil)   // Enter silent
         _ = e.handle(.down("pad15"), now: 4, ctx: ctx, snap: Snapshot())
         #expect(plans(e.handle(.up("pad15"), now: 4.1, ctx: ctx, snap: Snapshot())).first?.sound == "new")
-        _ = e.handle(.down("pad13"), now: 5, ctx: ctx, snap: Snapshot())   // Skills… (13) has a hold (voice search): a tap fires on release
-        #expect(plans(e.handle(.up("pad13"), now: 5.1, ctx: ctx, snap: Snapshot())).first?.sound == "picker")   // opens a list
+        #expect(sound(.down("pad13"), 5) == "picker")             // Skills… opens a list (a search)
+        _ = e.handle(.up("pad13"), now: 5.1, ctx: ctx, snap: Snapshot())
         #expect(sound(.turn("knob1", 1), 5.5) == "scroll")        // moving in the list
         #expect(sound(.down("pad11"), 6) == "select")             // green ✓ selects in the list
         _ = e.handle(.down("pad13"), now: 7, ctx: ctx, snap: Snapshot())

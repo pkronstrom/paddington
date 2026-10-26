@@ -240,7 +240,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         } else {
             c.focusedPane = nil
         }
-        if let p = c.focusedPane { agents.visit(pane: p.paneId, now: now) }
+        if let p = c.focusedPane { agents.visit(focused: p, panes: c.panes, now: now) }
         // a choice prompt on the focused agent's screen (questions, permission menus — Claude and Codex)
         if let p = c.focusedPane, Snapshot.agentCommands.contains(p.command), !testMode {
             let r = Tmux.run(["capture-pane", "-p", "-t", p.paneId])
@@ -446,7 +446,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         render()                                  // the pad turns red now: starting the microphone takes a moment
         if let problem = sampler.start(key, maxSeconds: limit) { Log.write("sampler: \(key): \(problem)"); legend.toast(problem); return }
         Log.write("sampler: recording \(key) (\(sampler.inputName))")
-        legend.toast("● Recording \(Self.padName(key)) — let go to stop")
+        legend.toast("● Recording \(Self.padName(key)) — speak, let go when done")
         DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self] in
             guard let self, self.sampler.recording == key else { return }
             self.engine?.recordingEnded()
@@ -523,7 +523,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
         render()
     }
 
+    var voiceInkWasRecording: Bool?
+
     func tick() {
+        if !testMode, Int(now * 20) % 5 == 0 {       // every 0.25 s: when VoiceInk starts / stops recording (for the log)
+            let rec = DictationWatcher.voiceInkRecording()
+            if let r = rec, voiceInkWasRecording != nil, r != voiceInkWasRecording { Log.write("talk: VoiceInk \(r ? "started" : "stopped") recording") }
+            voiceInkWasRecording = rec
+        }
         guard let e = engine else { return }
         let out = e.tick(now: now, ctx: context, snap: snapshot())
         if !out.isEmpty { process(out); render() }
@@ -561,15 +568,21 @@ public final class AppController: NSObject, NSApplicationDelegate {
             }
             pending = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
-        }, onSubmit: { finish(take: true) }, onCancel: { finish(take: false) })
+        }, onSubmit: { finish(take: true) }, onCancel: { finish(take: false) }, onMove: { [weak self] d in
+            guard let self, let e = self.engine, self.searchOpen else { return }
+            self.process(e.handle(.turn("knob1", d), now: self.now, ctx: self.context, snap: self.snapshot()))
+            self.render()
+        })
         dictation.start { [weak self] text in self?.legend.setSearchText(text) }
     }
 
     // MARK: hands-free dictation
 
     /// VoiceInk on ●: a hold is push-to-talk; a quick tap starts hands-free and the next tap stops it (pastes).
-    /// While hands-free is on, ▶ stops it, waits until the text is in, then presses Enter.
-    var talkDownAt = 0.0, lastTalkTap = -10.0
+    /// While hands-free is on, ▶ stops it, waits until the text is in, then presses Enter. Whether VoiceInk is
+    /// recording comes from Core Audio when it can (VoiceInk's own tap / hold rules aren't Paddington's guess);
+    /// `talkLatched` is the guess, for when it can't.
+    var talkDownAt = 0.0, talkUpAt = 0.0, lastTalkTap = -10.0
     var talkLatched = false { didSet { if talkLatched && !oldValue { latchTranscript = DictationWatcher.latestTranscript()?.id ?? 0 } } }
     var latchTranscript: Int64 = 0      // newest transcript when hands-free started: a newer one means it already ended
     var talkUpTranscript: Int64 = 0     // newest transcript when ● was let go: VoiceInk's text for that comes after it
@@ -592,9 +605,33 @@ public final class AppController: NSObject, NSApplicationDelegate {
         case .up(let c) where c == talk:
             let held = now - talkDownAt
             talkUpTranscript = DictationWatcher.latestTranscript()?.id ?? 0
+            talkUpAt = now
             if held >= 0.35 { talkLatched = false }      // push-to-talk: VoiceInk stops on release
             else { talkLatched.toggle() }                // a tap starts or stops hands-free
-            Log.write("talk: ● \(held >= 0.35 ? "hold" : "tap") \(String(format: "%.2f", held))s → hands-free \(talkLatched ? "on" : "off") (recorder on screen: \(DictationWatcher.recorderVisible()))")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let live = DictationWatcher.voiceInkRecording().map { $0 ? "recording" : "idle" } ?? "?"
+                Log.write("talk: ● \(held >= 0.35 ? "hold" : "tap") \(String(format: "%.2f", held))s → VoiceInk \(live) (guess: hands-free \(self.talkLatched ? "on" : "off"))")
+            }
+        case .down("play") where engine?.picker == nil && !inputWindow.isOpen && !injectingPlay
+                                 && DictationWatcher.voiceInkRecording() != nil:
+            // VoiceInk's real state. Recording: stop it, then Enter once the text is in. Just after ● was let go it
+            // may still be stopping a push-to-talk recording, so look again in a moment rather than tap it back on.
+            let sinceUp = now - talkUpAt
+            guard DictationWatcher.voiceInkRecording() == true || (talkUpAt > 0 && sinceUp < 0.6) else {
+                if now - talkDownAt < 15, talkDownAt > 0, transcriptDone(after: talkUpTranscript) == nil, !talkHandled {
+                    swallowPlayUp = true                   // ● was just let go: its text is on the way
+                    stopTalkThenEnter(tapToStop: false, after: talkUpTranscript)
+                    return true
+                }
+                return false                               // nothing being dictated: ▶ is Enter
+            }
+            swallowPlayUp = true; talkLatched = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, 0.6 - sinceUp)) { [weak self] in
+                guard let self else { return }
+                let recording = DictationWatcher.voiceInkRecording() == true
+                self.stopTalkThenEnter(tapToStop: recording, after: recording ? DictationWatcher.latestTranscript()?.id ?? 0 : self.talkUpTranscript)
+            }
+            return true
         case .down("play") where engine?.picker == nil && !inputWindow.isOpen && !injectingPlay:
             if talkLatched, let t = transcriptDone(after: latchTranscript) {
                 Log.write("talk: hands-free already ended (VoiceInk saved “\(t.text)”) — ▶ is just Enter")
@@ -626,7 +663,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
             guard let self else { return }
             let talkKey = (try? KeyChord.parse("rightcmd")) ?? KeyChord(modifiers: [], key: "rightcmd")
-            try? Keyboard.down(talkKey); usleep(40_000); try? Keyboard.up(talkKey)
+            // already recording: a tap would stop it
+            if DictationWatcher.voiceInkRecording() != true { try? Keyboard.down(talkKey); usleep(40_000); try? Keyboard.up(talkKey) }
             self.talkLatched = true
             Log.write("talk: free-form answer — dictation started (● pastes, ▶ pastes and sends)")
             self.legend.toast("🎤 Speak — ● to paste · ▶ to paste and send")
@@ -676,6 +714,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             case .search: openSearch()
             case .dictate: startDictation()
             case .sampler(.record(let key)): startSample(key)
+            case .sampler(.latched(let key)): legend.toast("● Recording \(Self.padName(key)) — tap it (or ●) to stop")
             case .sampler(.stop(let key)): finishSample(key)
             case .sampler(.erase(let key)): eraseSample(key)
             case .input(let r):
