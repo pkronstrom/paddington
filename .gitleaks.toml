@@ -1,0 +1,8 @@
+# Key bindings such as keys = "alt+shift+down" look like API keys to the generic rule.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "key bindings in layer files"
+regexTarget = "line"
+regexes = ['''keys\s*=\s*"[a-z0-9+ ]+"''']
