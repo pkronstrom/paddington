@@ -9,8 +9,8 @@ public enum HooksInstaller {
     public static let codexEvents = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
                                      "PostToolUse", "PreCompact", "PostCompact", "Stop", "Interrupt"]
 
-    /// Commands that are ours: the current name and the old one (padctl), so install replaces old entries.
-    static let markers = ["paddington hook ", "padctl hook "]
+    /// Commands that are ours: the current name (also shell-quoted) and the old one (padctl), so install replaces old entries.
+    static let markers = ["paddington hook ", "paddington' hook ", "padctl hook "]
 
     static var settingsPath: String { ProcessInfo.processInfo.environment["PADDINGTON_CLAUDE_SETTINGS"] ?? NSHomeDirectory() + "/.claude/settings.json" }
     static var codexPath: String { ProcessInfo.processInfo.environment["PADDINGTON_CODEX_HOOKS"] ?? NSHomeDirectory() + "/.codex/hooks.json" }
@@ -25,7 +25,7 @@ public enum HooksInstaller {
         return edit(path: path, binary: binary, events: codexEvents, uninstallOnly: uninstallOnly)
     }
 
-    /// Edits with python3 so key order and formatting style survive; backs up first.
+    /// Edits with python3 so key order and formatting style survive; the first edit keeps a backup of the original.
     public static func install(binary: String, uninstallOnly: Bool = false) -> (ok: Bool, message: String) {
         let path = settingsPath
         guard FileManager.default.fileExists(atPath: path) else { return (false, "\(path) not found") }
@@ -34,10 +34,13 @@ public enum HooksInstaller {
 
     static func edit(path: String, binary: String, events: [String], uninstallOnly: Bool) -> (ok: Bool, message: String) {
         let backup = path + ".paddington-backup"
-        try? FileManager.default.removeItem(atPath: backup)
-        do { try FileManager.default.copyItem(atPath: path, toPath: backup) } catch { return (false, "backup failed: \(error)") }
+        // a later run must not replace it with an edited copy; copy the file itself, not a dotfiles link to it
+        if !FileManager.default.fileExists(atPath: backup) {
+            do { try FileManager.default.copyItem(atPath: (path as NSString).resolvingSymlinksInPath, toPath: backup) }
+            catch { return (false, "backup failed: \(error)") }
+        }
         let script = """
-        import json, sys
+        import json, os, shlex, shutil, sys
         path, binary, mode = sys.argv[1], sys.argv[2], sys.argv[3]
         events = sys.argv[4].split(",")
         markers = sys.argv[5].split(",")
@@ -55,11 +58,16 @@ public enum HooksInstaller {
         added = 0
         if mode == "install":
             for ev in events:
-                hooks.setdefault(ev, []).append({"hooks": [{"type": "command", "command": f"{binary} hook {ev}", "timeout": 2 if ev in ("SessionEnd", "Interrupt") else 5}]})
+                hooks.setdefault(ev, []).append({"hooks": [{"type": "command", "command": f"{shlex.quote(binary)} hook {ev}", "timeout": 2 if ev in ("SessionEnd", "Interrupt") else 5}]})
                 added += 1
         if not hooks: del data["hooks"]
-        with open(path, "w") as f:
+        # write beside the real file (it may be a dotfiles link), then swap it in: a crash can't leave half a file
+        real = os.path.realpath(path)
+        tmp = real + ".paddington-tmp"
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2, ensure_ascii=False); f.write("\\n")
+        shutil.copymode(real, tmp)
+        os.replace(tmp, real)
         print(f"removed {removed}, added {added}")
         """
         let r = Shell.run(["python3", "-I", "-c", script, path, binary, uninstallOnly ? "uninstall" : "install",
