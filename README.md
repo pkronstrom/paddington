@@ -25,7 +25,8 @@ window 3 is done, and the grey text on a pad or knob is its bank-B action.*
 
 ## Requirements
 
-- An **M-VAVE SMC-PAD**, paired over Bluetooth (USB isn't supported)
+- An **M-VAVE SMC-PAD**, paired over Bluetooth (USB isn't supported), or any other MIDI controller
+  (see [Your own controller](#your-own-controller); only the SMC-PAD gets pad lights)
 - macOS 14+ and Swift 6 to build
 - **tmux** inside **iTerm2** for the agent and tmux features, with **Claude Code** and/or **Codex** running in tmux windows
 - Optional: VoiceInk for ● Talk (its push-to-talk key set to right ⌘), Firefox for the most-visited part of
@@ -59,6 +60,59 @@ rows 1–2 are windows or tabs, row 3 holds the app's verbs, and row 4 has lists
 Prompts are Markdown files in `prompts/`. `paddington apps` prints the bundle id for a new layer's `when`.
 Set `projects_dir` in `config.toml` to the folder that holds your projects: New starts agents there, and the
 "Claude in…" lists show its subfolders.
+
+### Your own controller
+
+Any MIDI pad, keyboard or controller works, over USB or Bluetooth, as long as its controls send notes or CCs.
+A device profile in `devices/` gives each control a name, and layers bind those names. Pads are `pad1`, `pad2`…
+and knobs `knob1`…, both numbered row by row from the bottom-left. Buttons get their own names.
+
+1. Copy `devices/m-vave-smc-pad.toml` to `devices/my-controller.toml`. Set `name`, and set `match` to part of
+   the controller's MIDI name (`paddington monitor` lists the names). In `[layout]`, set `pads = [rows, columns]`,
+   `knobs = [rows, columns]` (`[0, 0]` for none) and `buttons`, top to bottom. Empty `hardware_only`, and delete
+   the `[controls]` and `[controls_bank_b]` tables.
+2. Set `device = "my-controller"` in `config.toml`.
+3. Run `paddington learn`, and press, turn or skip (Enter) each control it asks for. It records each note or CC
+   with its channel, works out whether a knob sends absolute or relative values, and writes the profile. The old
+   profile is kept as `.bak`.
+4. Run `paddington monitor`: it prints each MIDI message and the control it maps to.
+
+Name buttons `left`, `right`, `play`, `pause` and `rec` to give them the shipped layers' actions (next window,
+Enter, Esc, Talk), or bind your own names. On a keyboard, the keys you want become pads (`pads = [2, 8]` for 16
+keys), the mod wheel and faders become knobs, and a sustain pedal becomes a button. If the controller has banks
+that change the notes it sends, `learn` can record bank B too, and bank B then runs each layer's `[shift]`
+bindings. Bindings for controls your device doesn't have are skipped (`paddington doctor` lists them). Without
+pad lights, the legend (hold `play`) shows what each control does.
+
+### A layer for your app
+
+1. Run `paddington apps`, switch to the app within three seconds, and note the bundle id it prints.
+2. Create a file in `~/.config/paddington/layers/`, say `preview.toml`. Subfolders are fine, and the file name
+   is the layer's id:
+
+   ```toml
+   name    = "Preview"
+   extends = "default"                   # what this file doesn't bind keeps the Default layer's action
+   color   = "#4dabf7"
+   when    = { app = ["com.apple.Preview"] }
+
+   pad9  = { label = "Rotate ⟲",   keys = "cmd+l", color = "act" }
+   pad10 = { label = "Rotate ⟳",   keys = "cmd+r", color = "act" }
+   pad11 = { label = "Markup",     keys = "cmd+shift+a" }
+   pad13 = { label = "Export PDF", menu = ["File", "Export as PDF"] }
+   knob6 = { label = "Zoom",       keys = { cw = "cmd+plus", ccw = "cmd+minus" }, color = "sys" }
+
+   [shift]                               # pad bank B
+   pad9  = { label = "Inspector",  keys = "cmd+i" }
+   ```
+3. Save it: the layer applies at once. `paddington doctor` reports mistakes, and keys your keyboard layout
+   can't type.
+
+A binding can also type `text`, run a Shortcuts `shortcut`, `open` an app, URL or file, run `exec = ["prog",
+"arg"]`, `press` a button by its name, send `tmux` commands, or chain steps with `seq`. The header of
+`default.toml` lists them all. Besides `app`, `when` takes `window = "<regex>"` for the window title (a website,
+as in `layers/browser/youtube.toml`), `tmux_cmd = ["lazygit"]` for a program in the focused tmux pane, and
+`fullscreen = true`. The most specific match wins, and `priority` breaks ties.
 
 ## Security
 
