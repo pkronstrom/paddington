@@ -123,13 +123,13 @@ public final class LearnTool {
         // first press was pad1
         lines.append("pad1 = { \(spec(first)) }"); used.insert(key(first))
         let pads = base.layout.padRows * base.layout.padCols
-        for n in 2...pads {
+        for n in stride(from: 2, through: pads, by: 1) {      // stride: no pads past pad1 is fine
             say("Press PAD \(n)   (Enter = skip)")
             guard let m = waitFirst(accept: { ($0.isNoteOn || ($0.isCC && $0.data2 > 0)) && !used.contains(key($0)) }) else { say("  skipped"); continue }
             lines.append("pad\(n) = { \(spec(m)) }"); used.insert(key(m)); say("  → \(m)")
         }
         let knobs = base.layout.knobRows * base.layout.knobCols
-        for n in 1...knobs {
+        for n in stride(from: 1, through: knobs, by: 1) {     // a keyboard may have no knobs
             say("Turn KNOB \(n) slowly to the RIGHT (clockwise)   (Enter = skip)")
             guard let m = waitFirst(accept: { $0.isCC && !used.contains(key($0)) }) else { say("  skipped"); continue }
             let right = [m.data2] + collect(for: 1.2, cc: m.data1)
@@ -161,7 +161,7 @@ public final class LearnTool {
             let a = Int(pad1.components(separatedBy: "= ")[2].components(separatedBy: ",")[0].trimmingCharacters(in: .whitespaces)) ?? -1
             let offset = m.data1 - a
             if offset != 0 {
-                for n in 1...pads {
+                for n in stride(from: 1, through: pads, by: 1) {
                     if let l = lines.first(where: { $0.hasPrefix("pad\(n) = ") }), let v = Int(l.components(separatedBy: "= ")[2].components(separatedBy: ",")[0].trimmingCharacters(in: .whitespaces)) {
                         bankB.append("pad\(n) = { \(m.isCC ? "cc" : "note") = \(v + offset), channel = \(m.channel + 1) }")
                     }

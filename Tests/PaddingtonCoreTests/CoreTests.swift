@@ -623,6 +623,25 @@ func plans(_ outs: [EngineOutput]) -> [Plan] {
         #expect(d.decode(MIDIMessage(status: 0xB0, channel: 0, data1: 27, data2: 127)) == [.down("play")])
     }
 
+    /// Another controller: a keyboard with eight keys as pads, no knobs, and a sustain pedal as a button.
+    @Test func deviceWithoutKnobs() throws {
+        let t = try TOML.parse("""
+            name = "Keys"
+            [layout]
+            pads = [1, 8]
+            knobs = [0, 0]
+            buttons = ["sustain"]
+            [controls]
+            pad1 = { note = 48 }
+            sustain = { cc = 64 }
+            """, file: "keys.toml")
+        let p = try DeviceProfile.parse(t, file: "keys.toml")
+        #expect(p.allControlNames == (1...8).map { "pad\($0)" } + ["sustain"])
+        let d = DeviceDecoder(profile: p)
+        #expect(d.decode(MIDIMessage(status: 0x90, channel: 0, data1: 48, data2: 90)) == [.down("pad1")])
+        #expect(d.decode(MIDIMessage(status: 0xB0, channel: 3, data1: 64, data2: 127)) == [.down("sustain")])
+    }
+
     /// The pad reports its bank in its global settings: known before any press, and a knob or button press
     /// doesn't undo it; the next pad press (its note) still decides.
     @Test func padBankFromThePad() throws {

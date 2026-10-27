@@ -95,9 +95,9 @@ public struct DeviceProfile {
         return .button
     }
 
-    public var allControlNames: [String] {
-        (1...(layout.padRows * layout.padCols)).map { "pad\($0)" }
-            + (1...(layout.knobRows * layout.knobCols)).map { "knob\($0)" }
+    public var allControlNames: [String] {      // 0..< ranges: a device may have no knobs (a keyboard)
+        (0..<(layout.padRows * layout.padCols)).map { "pad\($0 + 1)" }
+            + (0..<(layout.knobRows * layout.knobCols)).map { "knob\($0 + 1)" }
             + layout.buttons
     }
 
